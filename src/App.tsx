@@ -6,7 +6,7 @@
 import React, { useState, Suspense, lazy } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { CourseProvider } from './context/CourseContext';
+import { CourseProvider, useCourse } from './context/CourseContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Navbar } from './components/layout/Navbar';
 import { OfflineBanner } from './components/common/OfflineBanner';
@@ -42,10 +42,13 @@ const SuspenseLoader: React.FC = () => (
 );
 
 import { Assignment } from './types';
+import { DEFAULT_GRADING_SCALE } from './utils/grading';
 import { Shield, GraduationCap, ArrowLeftRight, Send, LogIn, Layers } from 'lucide-react';
 
 const MainLayout: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
+  const { gradingScale: rawScale } = useCourse();
+  const gradingScale = rawScale || DEFAULT_GRADING_SCALE;
   const isMobile = useIsMobile();
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
 
@@ -295,7 +298,7 @@ const MainLayout: React.FC = () => {
       <footer className="mt-auto border-t border-zinc-200 dark:border-zinc-800/80 py-5 px-4 sm:px-6 text-xs text-zinc-500 dark:text-zinc-400 no-print hidden md:block">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>GradeFlow</span>
-          <span className="font-mono text-[11px]">Numeric 9-point grading scale</span>
+          <span className="font-mono text-[11px]">{gradingScale.label || `Numeric ${gradingScale.max_score}-point grading scale`}</span>
         </div>
       </footer>
 

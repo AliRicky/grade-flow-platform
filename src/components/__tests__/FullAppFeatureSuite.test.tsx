@@ -12,6 +12,7 @@ import { UserManagement } from '../admin/UserManagement';
 import { ExportCenterModal } from '../admin/ExportCenterModal';
 import { TaDelegationPanel } from '../admin/TaDelegationPanel';
 import { DashboardOverview } from '../admin/DashboardOverview';
+import { DEFAULT_GRADING_SCALE } from '../../utils/grading';
 
 // Mock AuthContext
 let mockIsAdmin = false;
@@ -164,6 +165,8 @@ const mockCourseValue = {
   markAllNotificationsAsRead: vi.fn(),
   sendOverdueReminders: vi.fn(async () => ({ sentCount: 1, timestamp: new Date().toISOString() })),
   triggerBrowserNotification: vi.fn(),
+  gradingScale: DEFAULT_GRADING_SCALE,
+  updateGradingScale: vi.fn(),
 };
 
 vi.mock('../../context/CourseContext', () => ({

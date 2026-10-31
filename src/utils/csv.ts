@@ -3,8 +3,8 @@
  * Standardized on 100% English headers and 9-point numeric grading scale.
  */
 
-import { Assignment, StudentAssignmentGrade, User } from '../types';
-import { calculateNumericGrade } from './grading';
+import { Assignment, GradingScale, StudentAssignmentGrade, User } from '../types';
+import { DEFAULT_GRADING_SCALE, calculateNumericGrade, normalizeGradingScale } from './grading';
 
 export interface GradeRowData {
   student: User;
@@ -19,8 +19,10 @@ export function generateCSVContent(
   assignment: Assignment,
   students: User[],
   gradesMap: Record<string, StudentAssignmentGrade>,
-  _language: string = 'en'
+  _language: string = 'en',
+  scale: GradingScale = DEFAULT_GRADING_SCALE
 ): string {
+  const activeScale = normalizeGradingScale(scale);
   // Collect all score columns from assignment questions and sub-questions
   interface ColumnDef {
     key: string;
@@ -59,8 +61,8 @@ export function generateCSVContent(
     ...columns.map(c => csvQuote(c.label)),
     'Bonus Points',
     'Raw Total',
-    'Final Scaled (/9.0)',
-    'Numeric Grade (Scale 9)'
+    `Final Scaled (/${activeScale.max_score.toFixed(1)})`,
+    activeScale.max_score === 9 ? 'Numeric Grade (Scale 9)' : `Numeric Grade (Scale ${activeScale.max_score})`
   ];
 
   const rows: string[] = [];
@@ -104,11 +106,11 @@ export function generateCSVContent(
 
     const combinedScore = totalScore + bonusScore;
     const finalOutOf9 = assignment.totalMaxScore > 0
-      ? Math.min(9, (combinedScore / assignment.totalMaxScore) * 9)
-      : Math.min(9, combinedScore);
+      ? Math.min(activeScale.max_score, (combinedScore / assignment.totalMaxScore) * activeScale.max_score)
+      : Math.min(activeScale.max_score, combinedScore);
 
     const pct = assignment.totalMaxScore > 0 ? (combinedScore / assignment.totalMaxScore) * 100 : 0;
-    const numericGrade = calculateNumericGrade(pct);
+    const numericGrade = calculateNumericGrade(pct, activeScale);
 
     if (colValues.some(v => v !== '')) {
       gradedCount++;
@@ -164,8 +166,11 @@ export function generateMasterCSVContent(
   assignments: Assignment[],
   students: User[],
   gradesMap: Record<string, StudentAssignmentGrade>,
-  _language: string = 'en'
+  _language: string = 'en',
+  scale: GradingScale = DEFAULT_GRADING_SCALE
 ): string {
+  const activeScale = normalizeGradingScale(scale);
+  const m = activeScale.max_score;
   const hwList = assignments.filter(a => a.type === 'homework');
   const quizList = assignments.filter(a => a.type === 'quiz');
 
@@ -174,11 +179,11 @@ export function generateMasterCSVContent(
     'Last Name',
     'Student ID',
     'Section',
-    ...hwList.map(h => `${h.shortCode} (/9)`),
-    ...quizList.map(q => `${q.shortCode} (/9)`),
+    ...hwList.map(h => `${h.shortCode} (/${m})`),
+    ...quizList.map(q => `${q.shortCode} (/${m})`),
     'Course Total (%)',
-    'Final Scaled (/9.0)',
-    'Numeric Grade (Scale 9)'
+    `Final Scaled (/${m.toFixed(1)})`,
+    m === 9 ? 'Numeric Grade (Scale 9)' : `Numeric Grade (Scale ${m})`
   ];
 
   const rows: string[] = [];
@@ -226,11 +231,11 @@ export function generateMasterCSVContent(
       });
 
       const raw = earned + bonus;
-      const scaled = h.totalMaxScore > 0 ? Math.min(9, (raw / h.totalMaxScore) * 9) : Math.min(9, raw);
+      const scaled = h.totalMaxScore > 0 ? Math.min(m, (raw / h.totalMaxScore) * m) : Math.min(m, raw);
       hwSums[h.id] += scaled;
       hwCounts[h.id] += 1;
 
-      studentWeightedScoreSum += (scaled / 9) * h.weightPercent;
+      studentWeightedScoreSum += (scaled / m) * h.weightPercent;
       studentWeightSum += h.weightPercent;
 
       return scaled.toFixed(2);
@@ -260,25 +265,26 @@ export function generateMasterCSVContent(
       });
 
       const raw = earned + bonus;
-      const scaled = q.totalMaxScore > 0 ? Math.min(9, (raw / q.totalMaxScore) * 9) : Math.min(9, raw);
+      const scaled = q.totalMaxScore > 0 ? Math.min(m, (raw / q.totalMaxScore) * m) : Math.min(m, raw);
       quizSums[q.id] += scaled;
       quizCounts[q.id] += 1;
 
-      studentWeightedScoreSum += (scaled / 9) * q.weightPercent;
+      studentWeightedScoreSum += (scaled / m) * q.weightPercent;
       studentWeightSum += q.weightPercent;
 
       return scaled.toFixed(2);
     });
 
     const courseTotalPct = studentWeightSum > 0 ? (studentWeightedScoreSum / studentWeightSum) * 100 : 0;
-    const finalScaled9 = Math.min(9, (courseTotalPct / 100) * 9);
+    const finalScaledVal = Math.min(m, (courseTotalPct / 100) * m);
 
     if (studentWeightSum > 0) {
       classCourseTotalSum += courseTotalPct;
       studentsEvaluated += 1;
     }
 
-    const numericGrade = calculateNumericGrade(courseTotalPct);
+    const numericGrade = calculateNumericGrade(courseTotalPct, activeScale);
+    const displayGradeString = m === 9 ? `Grade ${numericGrade.gradeNumber}` : numericGrade.displayGrade;
 
     const row = [
       csvQuote(firstName),
@@ -288,8 +294,8 @@ export function generateMasterCSVContent(
       ...hwScores,
       ...quizScores,
       courseTotalPct.toFixed(2),
-      finalScaled9.toFixed(2),
-      `"Grade ${numericGrade.gradeNumber}"`
+      finalScaledVal.toFixed(2),
+      csvQuote(displayGradeString)
     ];
 
     rows.push(row.join(','));
@@ -307,8 +313,9 @@ export function generateMasterCSVContent(
   });
 
   const avgCourseTotal = studentsEvaluated > 0 ? (classCourseTotalSum / studentsEvaluated).toFixed(2) : '0.00';
-  const avgFinalScaled = (parseFloat(avgCourseTotal) / 100 * 9).toFixed(2);
-  const avgNumericGrade = calculateNumericGrade(parseFloat(avgCourseTotal));
+  const avgFinalScaled = (parseFloat(avgCourseTotal) / 100 * m).toFixed(2);
+  const avgNumericGrade = calculateNumericGrade(parseFloat(avgCourseTotal), activeScale);
+  const avgDisplayGradeString = m === 9 ? `Grade ${avgNumericGrade.gradeNumber}` : avgNumericGrade.displayGrade;
 
   const summaryRow = [
     '"Class Mean"',
@@ -319,7 +326,7 @@ export function generateMasterCSVContent(
     ...quizAverages,
     avgCourseTotal,
     avgFinalScaled,
-    `"Grade ${avgNumericGrade.gradeNumber}"`
+    csvQuote(avgDisplayGradeString)
   ];
 
   rows.push(summaryRow.join(','));

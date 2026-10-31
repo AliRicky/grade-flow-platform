@@ -111,3 +111,35 @@ export interface CourseStats {
   gradingProgress: number; // percentage
   pendingRegrades: number;
 }
+
+export type GradingScaleType = 'numeric' | 'letter' | 'points';
+
+export interface LetterCutoff {
+  letter: string;
+  min_percentage: number;
+  label?: string;
+}
+
+export interface GradingScale {
+  type: GradingScaleType;
+  max_score: number; // e.g. 9, 20, 100, 4.0
+  passing_threshold: number; // e.g. 4 for 9, 10 for 20, 60 for 100
+  precision?: number; // decimal places, defaults to 1 or 2
+  label?: string;
+  letter_cutoffs?: LetterCutoff[];
+}
+
+export interface Course {
+  id: string;
+  code: string;
+  title: string;
+  term?: string;
+  academic_year?: string;
+  grading_scale: GradingScale;
+  config?: {
+    allow_student_whatif?: boolean;
+    allow_regrade_appeals?: boolean;
+    regrade_window_days?: number;
+    [key: string]: any;
+  };
+}

@@ -14,11 +14,14 @@ import {
   BarChart3,
   Download,
   FileSpreadsheet,
-  Database
+  Database,
+  Sliders,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCourse } from '../../context/CourseContext';
+import { DEFAULT_GRADING_SCALE } from '../../utils/grading';
 import { AnalyticsDashboard } from './AnalyticsDashboard';
+import { GradingScaleModal } from './GradingScaleModal';
 
 interface DashboardOverviewProps {
   onNavigate: (view: string, asgId?: string) => void;
@@ -34,7 +37,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onOpenGoogleSheetsModal,
 }) => {
   const { users, currentUser } = useAuth();
-  const { assignments, grades, regrades } = useCourse();
+  const { assignments, grades, regrades, gradingScale: rawScale } = useCourse();
+  const gradingScale = rawScale || DEFAULT_GRADING_SCALE;
+  const [isScaleModalOpen, setIsScaleModalOpen] = useState(false);
 
   const students = users.filter(u => u.role === 'student');
   const activeAssignments = assignments.filter(a => a.status === 'active' || a.status === 'grading');
@@ -115,22 +120,37 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#3B82F6] mb-2">
             <span>Course Dashboard</span>
             <span className="text-zinc-300 dark:text-zinc-700">|</span>
-            <span className="font-mono text-zinc-400">Scale: Max 9.0</span>
+            <button
+              onClick={() => setIsScaleModalOpen(true)}
+              className="font-mono text-zinc-500 hover:text-[#3B82F6] underline decoration-dotted transition-colors cursor-pointer"
+              title="Click to configure grading scale"
+            >
+              Scale: Max {gradingScale.max_score.toFixed(gradingScale.precision ?? 1)} (Pass: {gradingScale.passing_threshold})
+            </button>
           </div>
           <h1 className="text-xl sm:text-2xl font-bold font-display text-zinc-900 dark:text-zinc-100 tracking-tight">
             Welcome back, {currentUser?.full_name?.split(' ')[0] || 'Admin'}
           </h1>
           <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1">
             {hwCount === 0 && quizCount === 0 ? (
-              'No assignments created yet. All final scores will be scaled out of 9.0.'
+              `No assignments created yet. All final scores will be scaled out of ${gradingScale.max_score.toFixed(1)}.`
             ) : (
-              `Managing ${hwCount} homework assignment${hwCount === 1 ? '' : 's'} and ${quizCount} quiz${quizCount === 1 ? '' : 'zes'}. All final scores are scaled out of 9.0.`
+              `Managing ${hwCount} homework assignment${hwCount === 1 ? '' : 's'} and ${quizCount} quiz${quizCount === 1 ? '' : 'zes'}. All final scores are scaled out of ${gradingScale.max_score.toFixed(1)}.`
             )}
           </p>
         </div>
 
         {/* Action Button Strip with Clear Visual Hierarchy */}
         <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-2.5 relative z-10 shrink-0 w-full xl:w-auto">
+          {/* Scoring Scale Button */}
+          <button
+            onClick={() => setIsScaleModalOpen(true)}
+            className="h-11 sm:h-10 inline-flex items-center justify-center gap-2 px-3 sm:px-3.5 text-xs font-semibold text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-2xs transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap"
+            title="Configure Course Scoring & Grading Scale"
+          >
+            <Sliders className="w-4 h-4 text-[#3B82F6] shrink-0" />
+            <span>Grading Scale</span>
+          </button>
           {onOpenGoogleSheetsModal && (
             <button
               onClick={onOpenGoogleSheetsModal}
@@ -460,6 +480,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </table>
         </div>
       </div>
+      {/* Grading Scale Settings Modal */}
+      <GradingScaleModal
+        isOpen={isScaleModalOpen}
+        onClose={() => setIsScaleModalOpen(false)}
+      />
     </motion.div>
   );
 };

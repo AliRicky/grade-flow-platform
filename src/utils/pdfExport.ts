@@ -6,8 +6,8 @@
 
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Assignment, StudentAssignmentGrade, User } from '../types';
-import { calculateNumericGrade } from './grading';
+import { Assignment, GradingScale, StudentAssignmentGrade, User } from '../types';
+import { DEFAULT_GRADING_SCALE, calculateNumericGrade, normalizeGradingScale } from './grading';
 
 // Palette color constants in RGB format (Supabase Theme)
 const PALETTE = {
@@ -32,6 +32,7 @@ export function exportGradebookMatrixPDF(
     instructorName?: string;
     semester?: string;
     includeSignoff?: boolean;
+    scale?: GradingScale;
   } = {}
 ): void {
   const {
@@ -39,7 +40,11 @@ export function exportGradebookMatrixPDF(
     instructorName = 'Course Instructor / Teaching Staff',
     semester = 'Fall 2026',
     includeSignoff = true,
+    scale = DEFAULT_GRADING_SCALE,
   } = options;
+
+  const activeScale = normalizeGradingScale(scale);
+  const m = activeScale.max_score;
 
   // A4 Landscape for tabular master gradebook
   const doc = new jsPDF({
@@ -95,7 +100,7 @@ export function exportGradebookMatrixPDF(
   const quizList = assignments.filter(a => a.type === 'quiz');
 
   doc.text(
-    `Enrolled Students: ${students.length}  |  Assessments: ${hwList.length} Homeworks, ${quizList.length} Quizzes  |  Standard Scale: 9-Point Numeric (Grade 9 is Distinction)  |  Passing: Grade 4`,
+    `Enrolled Students: ${students.length}  |  Assessments: ${hwList.length} Homeworks, ${quizList.length} Quizzes  |  Standard Scale: ${activeScale.label || `${m}-Point Numeric`}  |  Passing: ${activeScale.passing_threshold}`,
     150,
     88
   );
@@ -106,11 +111,11 @@ export function exportGradebookMatrixPDF(
     'Student ID',
     'Student Name',
     'Sec',
-    ...hwList.map(h => `${h.shortCode} (/9)`),
-    ...quizList.map(q => `${q.shortCode} (/9)`),
+    ...hwList.map(h => `${h.shortCode} (/${m})`),
+    ...quizList.map(q => `${q.shortCode} (/${m})`),
     'Course %',
-    'Final /9',
-    'Scale 9',
+    `Final /${m}`,
+    m === 9 ? 'Scale 9' : `Scale ${m}`,
   ];
 
   const hwSums: Record<string, number> = {};
@@ -150,10 +155,10 @@ export function exportGradebookMatrixPDF(
         }
       });
       const raw = earned + bonus;
-      const scaled = h.totalMaxScore > 0 ? Math.min(9, (raw / h.totalMaxScore) * 9) : Math.min(9, raw);
+      const scaled = h.totalMaxScore > 0 ? Math.min(m, (raw / h.totalMaxScore) * m) : Math.min(m, raw);
       hwSums[h.id] += scaled;
       hwCounts[h.id] += 1;
-      studentWeightedScoreSum += (scaled / 9) * h.weightPercent;
+      studentWeightedScoreSum += (scaled / m) * h.weightPercent;
       studentWeightSum += h.weightPercent;
       return scaled.toFixed(1);
     });
@@ -181,23 +186,24 @@ export function exportGradebookMatrixPDF(
         }
       });
       const raw = earned + bonus;
-      const scaled = q.totalMaxScore > 0 ? Math.min(9, (raw / q.totalMaxScore) * 9) : Math.min(9, raw);
+      const scaled = q.totalMaxScore > 0 ? Math.min(m, (raw / q.totalMaxScore) * m) : Math.min(m, raw);
       quizSums[q.id] += scaled;
       quizCounts[q.id] += 1;
-      studentWeightedScoreSum += (scaled / 9) * q.weightPercent;
+      studentWeightedScoreSum += (scaled / m) * q.weightPercent;
       studentWeightSum += q.weightPercent;
       return scaled.toFixed(1);
     });
 
     const courseTotalPct = studentWeightSum > 0 ? (studentWeightedScoreSum / studentWeightSum) * 100 : 0;
-    const finalScaled9 = Math.min(9, (courseTotalPct / 100) * 9);
+    const finalScaledVal = Math.min(m, (courseTotalPct / 100) * m);
 
     if (studentWeightSum > 0) {
       classWeightedSum += courseTotalPct;
       activeStudentCount += 1;
     }
 
-    const numericGrade = calculateNumericGrade(courseTotalPct);
+    const numericGrade = calculateNumericGrade(courseTotalPct, activeScale);
+    const displayGrade = m === 9 ? `Grade ${numericGrade.gradeNumber}` : numericGrade.displayGrade;
 
     return [
       (idx + 1).toString(),
@@ -207,8 +213,8 @@ export function exportGradebookMatrixPDF(
       ...hwScores,
       ...quizScores,
       courseTotalPct > 0 ? `${courseTotalPct.toFixed(1)}%` : '—',
-      finalScaled9 > 0 ? finalScaled9.toFixed(2) : '—',
-      courseTotalPct > 0 ? `Grade ${numericGrade.gradeNumber}` : '—',
+      finalScaledVal > 0 ? finalScaledVal.toFixed(2) : '—',
+      courseTotalPct > 0 ? displayGrade : '—',
     ];
   });
 
@@ -224,8 +230,9 @@ export function exportGradebookMatrixPDF(
   });
 
   const overallAvgPct = activeStudentCount > 0 ? classWeightedSum / activeStudentCount : 0;
-  const overallAvgScaled = (overallAvgPct / 100) * 9;
-  const overallAvgGrade = calculateNumericGrade(overallAvgPct);
+  const overallAvgScaled = (overallAvgPct / 100) * m;
+  const overallAvgGrade = calculateNumericGrade(overallAvgPct, activeScale);
+  const overallAvgDisplay = m === 9 ? `Grade ${overallAvgGrade.gradeNumber}` : overallAvgGrade.displayGrade;
 
   const averageRow = [
     '',
@@ -236,7 +243,7 @@ export function exportGradebookMatrixPDF(
     ...quizAverages,
     overallAvgPct > 0 ? `${overallAvgPct.toFixed(1)}%` : '—',
     overallAvgScaled > 0 ? overallAvgScaled.toFixed(2) : '—',
-    `Grade ${overallAvgGrade.gradeNumber}`,
+    overallAvgDisplay,
   ];
 
   tableRows.push(averageRow);
@@ -337,13 +344,18 @@ export function exportAssignmentReportPDF(
     courseName?: string;
     instructorName?: string;
     semester?: string;
+    scale?: GradingScale;
   } = {}
 ): void {
   const {
     courseName = 'Introduction to Algorithms & Systems',
     instructorName = 'Teaching Assistant Staff',
     semester = 'Fall 2026',
+    scale = DEFAULT_GRADING_SCALE,
   } = options;
+
+  const activeScale = normalizeGradingScale(scale);
+  const m = activeScale.max_score;
 
   // Portrait A4 for individual assignment report
   const doc = new jsPDF({
@@ -391,7 +403,7 @@ export function exportAssignmentReportPDF(
   // Compute Statistics
   let scoreSum = 0;
   let gradedCount = 0;
-  let minScore = 9;
+  let minScore = m;
   let maxScoreAchieved = 0;
 
   students.forEach(s => {
@@ -417,7 +429,7 @@ export function exportAssignmentReportPDF(
         }
       });
       const raw = earned + bonus;
-      const scaled = assignment.totalMaxScore > 0 ? Math.min(9, (raw / assignment.totalMaxScore) * 9) : Math.min(9, raw);
+      const scaled = assignment.totalMaxScore > 0 ? Math.min(m, (raw / assignment.totalMaxScore) * m) : Math.min(m, raw);
       scoreSum += scaled;
       gradedCount++;
       if (scaled < minScore) minScore = scaled;
@@ -449,7 +461,7 @@ export function exportAssignmentReportPDF(
   doc.text('CLASS ARITHMETIC MEAN', 46 + colWidth * 2, startY + 15);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(16, 185, 129);
-  doc.text(`${avgScaled} / 9.0 pts`, 46 + colWidth * 2, startY + 28);
+  doc.text(`${avgScaled} / ${m.toFixed(1)} pts`, 46 + colWidth * 2, startY + 28);
 
   // Box 4
   doc.setTextColor(...PALETTE.darkText);
@@ -539,8 +551,8 @@ export function exportAssignmentReportPDF(
     'Student Name',
     ...columnsToShow.map(c => c.part),
     'Raw Pts',
-    'Final /9',
-    'Scale 9',
+    `Final /${m}`,
+    m === 9 ? 'Scale 9' : `Scale ${m}`,
   ];
 
   const studentRows = students.map((s, idx) => {
@@ -573,9 +585,10 @@ export function exportAssignmentReportPDF(
     });
 
     const combined = rawTotal + bonus;
-    const scaled = assignment.totalMaxScore > 0 ? Math.min(9, (combined / assignment.totalMaxScore) * 9) : Math.min(9, combined);
+    const scaled = assignment.totalMaxScore > 0 ? Math.min(m, (combined / assignment.totalMaxScore) * m) : Math.min(m, combined);
     const pct = assignment.totalMaxScore > 0 ? (combined / assignment.totalMaxScore) * 100 : 0;
-    const numericGrade = calculateNumericGrade(pct);
+    const numericGrade = calculateNumericGrade(pct, activeScale);
+    const displayGrade = m === 9 ? `Grade ${numericGrade.gradeNumber}` : numericGrade.displayGrade;
 
     return [
       (idx + 1).toString(),
@@ -584,7 +597,7 @@ export function exportAssignmentReportPDF(
       ...scores,
       combined > 0 ? combined.toFixed(1) : '—',
       combined > 0 ? scaled.toFixed(2) : '—',
-      combined > 0 ? `Grade ${numericGrade.gradeNumber}` : '—',
+      combined > 0 ? displayGrade : '—',
     ];
   });
 

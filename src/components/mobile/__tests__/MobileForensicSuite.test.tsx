@@ -9,6 +9,7 @@ import { MobileGradingDrawer } from '../MobileGradingDrawer';
 import { MobileMoreSheet } from '../MobileMoreSheet';
 import { useCourse } from '../../../context/CourseContext';
 import { useAuth } from '../../../context/AuthContext';
+import { DEFAULT_GRADING_SCALE } from '../../../utils/grading';
 
 // Mocks
 const mockUpdateGrade = vi.fn();
@@ -88,6 +89,8 @@ describe('Mobile Forensic & Quality Assurance Suite', () => {
       regrades: [],
       notifications: [],
       isOnline: true,
+      gradingScale: DEFAULT_GRADING_SCALE,
+      updateGradingScale: vi.fn(),
       updateGrade: mockUpdateGrade,
       resetToFreshCourse: mockResetToFreshCourse,
       clearAllGrades: mockClearAllGrades,

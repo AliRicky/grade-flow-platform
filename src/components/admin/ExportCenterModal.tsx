@@ -15,6 +15,7 @@ import {
 import { useCourse } from '../../context/CourseContext';
 import { useAuth } from '../../context/AuthContext';
 import { Assignment } from '../../types';
+import { DEFAULT_GRADING_SCALE } from '../../utils/grading';
 import {
   exportGradebookMatrixPDF,
   exportAssignmentReportPDF,
@@ -34,7 +35,8 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
   onClose,
   defaultAssignmentId,
 }) => {
-  const { assignments, grades } = useCourse();
+  const { assignments, grades, gradingScale: rawScale } = useCourse();
+  const gradingScale = rawScale || DEFAULT_GRADING_SCALE;
   const { currentUser, users } = useAuth();
 
   const students = users.filter(u => u.role === 'student');
@@ -78,9 +80,9 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
     try {
       let csv = '';
       if (exportScope === 'master') {
-        csv = generateMasterCSVContent(assignments, students, grades);
+        csv = generateMasterCSVContent(assignments, students, grades, 'en', gradingScale);
       } else if (selectedAssignment) {
-        csv = generateCSVContent(selectedAssignment, students, grades, 'en');
+        csv = generateCSVContent(selectedAssignment, students, grades, 'en', gradingScale);
       }
       navigator.clipboard.writeText(csv);
       setCopiedCSV(true);
@@ -105,10 +107,11 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
             instructorName: currentUser?.full_name || 'Lead TA Staff',
             semester: 'Fall 2026',
             includeSignoff,
+            scale: gradingScale,
           });
           setSuccessMessage('Official Course Master Gradebook PDF successfully downloaded!');
         } else {
-          const csv = generateMasterCSVContent(assignments, students, grades);
+          const csv = generateMasterCSVContent(assignments, students, grades, 'en', gradingScale);
           downloadCSV('Master_Gradebook_Matrix.csv', csv);
           setSuccessMessage('Master Gradebook CSV successfully downloaded!');
         }
@@ -122,10 +125,11 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
             courseName: 'Introduction to Algorithms & Systems',
             instructorName: currentUser?.full_name || 'TA Staff',
             semester: 'Fall 2026',
+            scale: gradingScale,
           });
           setSuccessMessage(`${selectedAssignment.shortCode} Official Report PDF downloaded!`);
         } else {
-          const csv = generateCSVContent(selectedAssignment, students, grades, 'en');
+          const csv = generateCSVContent(selectedAssignment, students, grades, 'en', gradingScale);
           const fname = `${selectedAssignment.shortCode}_Scores_English.csv`;
           downloadCSV(fname, csv);
           setSuccessMessage(`${selectedAssignment.shortCode} CSV score sheet downloaded!`);
@@ -219,7 +223,7 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
                     Master Gradebook
                   </span>
                   <span className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-tight block mt-0.5">
-                    Full class matrix with all 5 HWs, 5 Quizzes & 9-point scale course totals
+                    Full class matrix with all assessments & {gradingScale.max_score}-point scale course totals
                   </span>
                 </div>
               </button>

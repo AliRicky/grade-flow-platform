@@ -4,11 +4,14 @@ import { supabase } from '../services/supabaseDatabase';
 
 import {
   Assignment,
+  Course,
+  GradingScale,
   NotificationItem,
   Question,
   RegradeRequest,
   StudentAssignmentGrade
 } from '../types';
+import { DEFAULT_GRADING_SCALE, normalizeGradingScale } from '../utils/grading';
 
 interface CourseContextType {
   assignments: Assignment[];
@@ -18,6 +21,10 @@ interface CourseContextType {
   isOnline: boolean;
   offlineQueueCount: number;
   lastSyncTimestamp: number;
+  currentCourse: Course | null;
+  gradingScale: GradingScale;
+  updateGradingScale: (scale: GradingScale) => Promise<void>;
+  updateCourseInfo: (updates: Partial<Course>) => Promise<void>;
   
   createAssignment: (assignment: Omit<Assignment, 'id'>) => Assignment;
   updateAssignment: (id: string, updates: Partial<Assignment>) => void;
@@ -33,7 +40,7 @@ interface CourseContextType {
   ) => void;
   bulkImportGrades: (assignmentId: string, records: { studentId: string; scores: Record<string, number> }[]) => number;
   getStudentGrade: (studentId: string, assignmentId: string) => StudentAssignmentGrade | undefined;
-  calculateStudentTotal: (studentId: string, assignmentId: string) => { rawTotal: number; bonus: number; scaledFinal: number; maxScore: number };
+  calculateStudentTotal: (studentId: string, assignmentId: string, customScale?: GradingScale) => { rawTotal: number; bonus: number; scaledFinal: number; maxScore: number };
   
   clearAllGrades: () => Promise<void>;
   resetToFreshCourse: () => Promise<void>;
@@ -72,6 +79,104 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [regrades, setRegrades] = useState<RegradeRequest[]>([]);
   const [allNotifications, setAllNotifications] = useState<NotificationItem[]>([]);
 
+  // Persistent Course Configuration & Dynamic Grading Scale
+  const [currentCourse, setCurrentCourse] = useState<Course>(() => {
+    try {
+      const cached = localStorage.getItem('gradeflow_cached_course');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return {
+          ...parsed,
+          grading_scale: normalizeGradingScale(parsed.grading_scale),
+        };
+      }
+      const cachedScale = localStorage.getItem('gradeflow_grading_scale');
+      if (cachedScale) {
+        return {
+          id: 'c1010000-0000-0000-0000-000000000001',
+          code: 'CS101',
+          title: 'CS 101: Introduction to Algorithms & Systems',
+          term: 'Fall',
+          academic_year: '2026-2027',
+          grading_scale: normalizeGradingScale(JSON.parse(cachedScale)),
+        };
+      }
+    } catch (e) {
+      // ignore
+    }
+    return {
+      id: 'c1010000-0000-0000-0000-000000000001',
+      code: 'CS101',
+      title: 'CS 101: Introduction to Algorithms & Systems',
+      term: 'Fall',
+      academic_year: '2026-2027',
+      grading_scale: DEFAULT_GRADING_SCALE,
+    };
+  });
+
+  const gradingScale = useMemo(() => {
+    return normalizeGradingScale(currentCourse?.grading_scale);
+  }, [currentCourse?.grading_scale]);
+
+  const updateGradingScale = async (newScale: GradingScale) => {
+    const normalized = normalizeGradingScale(newScale);
+    const updatedCourse: Course = {
+      ...(currentCourse || {
+        id: 'c1010000-0000-0000-0000-000000000001',
+        code: 'CS101',
+        title: 'CS 101: Introduction to Algorithms & Systems',
+      }),
+      grading_scale: normalized,
+    };
+
+    setCurrentCourse(updatedCourse);
+
+    try {
+      localStorage.setItem('gradeflow_cached_course', JSON.stringify(updatedCourse));
+      localStorage.setItem('gradeflow_grading_scale', JSON.stringify(normalized));
+    } catch (e) {
+      // ignore
+    }
+
+    try {
+      if (updatedCourse.id) {
+        await supabase
+          .from('courses')
+          .update({ grading_scale: normalized })
+          .eq('id', updatedCourse.id);
+      }
+    } catch (err) {
+      console.error('Failed to persist grading scale to database:', err);
+    }
+
+    pushNotification({
+      id: uid('notif'),
+      title: 'Scoring Scale Updated',
+      message: `Course grading scale adjusted to ${normalized.label || `Max ${normalized.max_score} pts`} (Passing: ${normalized.passing_threshold} pts). All score columns and grade conversions have been recalculated.`,
+      type: 'system',
+      timestamp: new Date().toISOString(),
+      read: false,
+      audience: 'all',
+    });
+  };
+
+  const updateCourseInfo = async (updates: Partial<Course>) => {
+    const updated: Course = {
+      ...currentCourse,
+      ...updates,
+      grading_scale: updates.grading_scale ? normalizeGradingScale(updates.grading_scale) : gradingScale,
+    };
+    setCurrentCourse(updated);
+    try {
+      localStorage.setItem('gradeflow_cached_course', JSON.stringify(updated));
+      if (updated.id) {
+        await supabase.from('courses').update(updates).eq('id', updated.id);
+      }
+    } catch (e) {
+      console.error('Failed to update course in database:', e);
+    }
+  };
+
   // Keep compatibility fields
   const isOnline = true;
   const offlineQueueCount = 0;
@@ -103,12 +208,31 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const [
           { data: assignmentsData },
           { data: gradesData },
-          { data: regradesData }
+          { data: regradesData },
+          { data: coursesData }
         ] = await Promise.all([
           supabase.from('assignments').select('*'),
           supabase.from('grades').select('*'),
-          supabase.from('regrades').select('*')
+          supabase.from('regrades').select('*'),
+          supabase.from('courses').select('*').limit(1)
         ]);
+
+        if (coursesData && coursesData.length > 0) {
+          const row = coursesData[0];
+          const fetchedCourse: Course = {
+            id: row.id,
+            code: row.code || 'CS101',
+            title: row.title || 'CS 101: Introduction to Algorithms & Systems',
+            term: row.term || 'Fall',
+            academic_year: row.academic_year || '2026-2027',
+            grading_scale: normalizeGradingScale(row.grading_scale),
+            config: row.config,
+          };
+          setCurrentCourse(fetchedCourse);
+          try {
+            localStorage.setItem('gradeflow_cached_course', JSON.stringify(fetchedCourse));
+          } catch (e) {}
+        }
 
         if (assignmentsData) {
           setAssignments(assignmentsData.map(row => {
@@ -282,9 +406,10 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const getStudentGrade = (studentId: string, assignmentId: string) => grades[`${studentId}_${assignmentId}`];
 
-  const calculateStudentTotal = (studentId: string, assignmentId: string) => {
+  const calculateStudentTotal = (studentId: string, assignmentId: string, customScale?: GradingScale) => {
     const assignment = assignments.find(a => a.id === assignmentId);
     const grade = grades[`${studentId}_${assignmentId}`];
+    const activeScale = normalizeGradingScale(customScale ?? gradingScale);
 
     if (!assignment) return { rawTotal: 0, bonus: 0, scaledFinal: 0, maxScore: 0 };
 
@@ -304,7 +429,9 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
 
     const combined = rawTotal + bonus;
-    const scaledFinal = assignment.totalMaxScore > 0 ? Math.min(9, Math.round((combined / assignment.totalMaxScore) * 9 * 100) / 100) : Math.min(9, combined);
+    const scaledFinal = assignment.totalMaxScore > 0
+      ? Math.min(activeScale.max_score, Math.round(((combined / assignment.totalMaxScore) * activeScale.max_score) * 100) / 100)
+      : Math.min(activeScale.max_score, combined);
     return { rawTotal, bonus, scaledFinal, maxScore: assignment.totalMaxScore };
   };
 
@@ -411,12 +538,16 @@ export const CourseProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const contextValue = useMemo(() => ({
     assignments, grades, regrades, notifications, isOnline, offlineQueueCount, lastSyncTimestamp,
+    currentCourse, gradingScale, updateGradingScale, updateCourseInfo,
     createAssignment, updateAssignment, deleteAssignment, reorderQuestions,
     updateGrade, bulkImportGrades, getStudentGrade, calculateStudentTotal,
     clearAllGrades, resetToFreshCourse,
     submitRegrade, resolveRegrade, markNotificationAsRead, markAllNotificationsAsRead,
     sendOverdueReminders, triggerBrowserNotification
-  }), [assignments, grades, regrades, notifications, isOnline, offlineQueueCount, lastSyncTimestamp]);
+  }), [
+    assignments, grades, regrades, notifications, isOnline, offlineQueueCount, lastSyncTimestamp,
+    currentCourse, gradingScale, updateGradingScale, updateCourseInfo
+  ]);
 
   return <CourseContext.Provider value={contextValue}>{children}</CourseContext.Provider>;
 };

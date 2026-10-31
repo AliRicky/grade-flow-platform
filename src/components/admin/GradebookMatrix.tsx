@@ -16,14 +16,16 @@ import {
   HelpCircle,
   ExternalLink,
   Award,
-  Database
+  Database,
+  Sliders,
 } from 'lucide-react';
 import { useCourse } from '../../context/CourseContext';
 import { useAuth } from '../../context/AuthContext';
 import { Assignment, Question, SubQuestion, User } from '../../types';
 import { generateCSVContent, downloadCSV } from '../../utils/csv';
 import { exportAssignmentReportPDF } from '../../utils/pdfExport';
-import { calculateNumericGrade } from '../../utils/grading';
+import { calculateNumericGrade, DEFAULT_GRADING_SCALE } from '../../utils/grading';
+import { GradingScaleModal } from './GradingScaleModal';
 
 interface GradebookMatrixProps {
   initialAssignmentId?: string;
@@ -102,7 +104,8 @@ export const GradebookMatrix: React.FC<GradebookMatrixProps> = ({
   onOpenExportHub,
   onOpenGoogleSheetsModal,
 }) => {
-  const { assignments, grades, updateGrade, bulkImportGrades } = useCourse();
+  const { assignments, grades, updateGrade, bulkImportGrades, gradingScale: rawScale } = useCourse();
+  const gradingScale = rawScale || DEFAULT_GRADING_SCALE;
   const { users, currentUser } = useAuth();
 
   // Active assessment selected
@@ -119,6 +122,7 @@ export const GradebookMatrix: React.FC<GradebookMatrixProps> = ({
   const [importText, setImportText] = useState('');
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [isScaleModalOpen, setIsScaleModalOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -428,8 +432,8 @@ export const GradebookMatrix: React.FC<GradebookMatrixProps> = ({
         const rowRaw = rowTotal + rowBonus;
         totalScoreSum += rowRaw;
         const scaled = currentAssignment.totalMaxScore > 0
-          ? Math.min(9, (rowRaw / currentAssignment.totalMaxScore) * 9)
-          : Math.min(9, rowRaw);
+          ? Math.min(gradingScale.max_score, (rowRaw / currentAssignment.totalMaxScore) * gradingScale.max_score)
+          : Math.min(gradingScale.max_score, rowRaw);
         finalScoreSum += scaled;
       }
     });
@@ -442,17 +446,17 @@ export const GradebookMatrix: React.FC<GradebookMatrixProps> = ({
 
     const avgTotal = studentWithGradesCount > 0 ? (totalScoreSum / studentWithGradesCount).toFixed(1) : '—';
     const avgFinal = studentWithGradesCount > 0 ? (finalScoreSum / studentWithGradesCount).toFixed(2) : '—';
-    const avgPct = studentWithGradesCount > 0 ? (parseFloat(avgFinal) / 9) * 100 : 0;
-    const avgGrade9 = calculateNumericGrade(avgPct);
+    const avgPct = studentWithGradesCount > 0 && gradingScale.max_score > 0 ? (parseFloat(avgFinal) / gradingScale.max_score) * 100 : 0;
+    const avgGradeObj = calculateNumericGrade(avgPct, gradingScale);
 
     return {
       columns: averagesMap,
       avgTotal,
       avgFinal,
-      avgGrade9: `Grade ${avgGrade9.gradeNumber}`,
+      avgGrade9: gradingScale.max_score === 9 ? `Grade ${avgGradeObj.gradeNumber}` : avgGradeObj.displayGrade,
       activeCount: studentWithGradesCount,
     };
-  }, [students, columns, grades, currentAssignment]);
+  }, [students, columns, grades, currentAssignment, gradingScale]);
 
   if (!currentAssignment) {
     return (
@@ -504,6 +508,16 @@ export const GradebookMatrix: React.FC<GradebookMatrixProps> = ({
                 className="h-9 pl-9 pr-3 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/80 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/30 focus:border-[#3B82F6] transition-all w-44 sm:w-52"
               />
             </div>
+
+            {/* Scoring Scale Button */}
+            <button
+              onClick={() => setIsScaleModalOpen(true)}
+              className="h-9 inline-flex items-center justify-center gap-2 px-3 text-xs font-semibold text-zinc-700 dark:text-zinc-200 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-2xs transition-all active:scale-[0.98] cursor-pointer whitespace-nowrap"
+              title="Configure Course Scoring & Grading Scale"
+            >
+              <Sliders className="w-3.5 h-3.5 text-[#3B82F6] shrink-0" />
+              <span>Scale: Max {gradingScale.max_score}</span>
+            </button>
 
             {/* Supabase Database Sync Button */}
             {onOpenGoogleSheetsModal && (
@@ -624,7 +638,13 @@ export const GradebookMatrix: React.FC<GradebookMatrixProps> = ({
             <span>·</span>
             <span>Total Columns: {columns.length} question parts</span>
             <span>·</span>
-            <span className="font-mono">Scale: 0 – 9.0 pts (Max 9.00)</span>
+            <button
+              onClick={() => setIsScaleModalOpen(true)}
+              className="font-mono hover:text-[#3B82F6] underline decoration-dotted transition-colors cursor-pointer"
+              title="Click to change scoring scale"
+            >
+              Scale: 0 – {gradingScale.max_score.toFixed(gradingScale.precision ?? 1)} pts (Pass: {gradingScale.passing_threshold})
+            </button>
           </div>
           <div className="flex items-center gap-2 text-[11px] text-zinc-400 font-mono">
             <span>Tip: Click any cell to grade · Press <kbd className="px-1 py-0.5 bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded">Enter</kbd> to move down</span>
@@ -668,10 +688,10 @@ export const GradebookMatrix: React.FC<GradebookMatrixProps> = ({
                   Raw Total
                 </th>
                 <th className="py-2.5 px-3 text-center font-bold border-b border-r border-zinc-800 bg-zinc-900 text-[#3B82F6] min-w-[75px] font-mono">
-                  Score /9.0
+                  Score /{gradingScale.max_score.toFixed(gradingScale.precision ?? 1)}
                 </th>
                 <th className="py-2.5 px-3 text-center font-bold border-b border-zinc-800 bg-zinc-900 text-[#3B82F6] min-w-[75px] font-mono">
-                  Scale 9
+                  {gradingScale.max_score === 9 ? 'Scale 9' : `Scale ${gradingScale.max_score}`}
                 </th>
               </tr>
             </thead>
@@ -708,11 +728,11 @@ export const GradebookMatrix: React.FC<GradebookMatrixProps> = ({
 
                     const combined = rowTotal + rowBonus;
                     const finalScore = currentAssignment.totalMaxScore > 0
-                      ? Math.min(9, Math.round(((combined / currentAssignment.totalMaxScore) * 9) * 100) / 100)
-                      : Math.min(9, combined);
+                      ? Math.min(gradingScale.max_score, Math.round(((combined / currentAssignment.totalMaxScore) * gradingScale.max_score) * 100) / 100)
+                      : Math.min(gradingScale.max_score, combined);
 
                     const pct = currentAssignment.totalMaxScore > 0 ? (combined / currentAssignment.totalMaxScore) * 100 : 0;
-                    const numericGrade = calculateNumericGrade(pct);
+                    const numericGrade = calculateNumericGrade(pct, gradingScale);
 
                     return (
                       <tr
@@ -764,14 +784,14 @@ export const GradebookMatrix: React.FC<GradebookMatrixProps> = ({
                           {combined > 0 ? combined.toFixed(1) : '0.0'}
                         </td>
 
-                        {/* Row final scaled score (out of 9) */}
+                        {/* Row final scaled score */}
                         <td className="py-2 px-3 text-center font-mono font-bold border-r border-zinc-100 dark:border-zinc-800 bg-[#3B82F6]/5 text-[#3B82F6]">
                           {finalScore.toFixed(2)}
                         </td>
 
-                        {/* Row Numeric Grade (Scale 9) */}
+                        {/* Row Numeric Grade */}
                         <td className="py-2 px-3 text-center font-mono font-bold bg-[#3B82F6]/10 text-[#3B82F6]">
-                          Grade {numericGrade.gradeNumber}
+                          {gradingScale.max_score === 9 ? `Grade ${numericGrade.gradeNumber}` : numericGrade.displayGrade}
                         </td>
                       </tr>
                     );
@@ -879,6 +899,11 @@ export const GradebookMatrix: React.FC<GradebookMatrixProps> = ({
           </div>
         </div>
       )}
+      {/* Grading Scale Settings Modal */}
+      <GradingScaleModal
+        isOpen={isScaleModalOpen}
+        onClose={() => setIsScaleModalOpen(false)}
+      />
     </div>
   );
 };

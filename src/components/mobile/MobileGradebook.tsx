@@ -14,7 +14,7 @@ import {
 import { useCourse } from '../../context/CourseContext';
 import { useAuth } from '../../context/AuthContext';
 import { Assignment, User } from '../../types';
-import { calculateNumericGrade } from '../../utils/grading';
+import { calculateNumericGrade, DEFAULT_GRADING_SCALE } from '../../utils/grading';
 import { MobileGradingDrawer } from './MobileGradingDrawer';
 
 interface MobileGradebookProps {
@@ -30,7 +30,8 @@ export const MobileGradebook: React.FC<MobileGradebookProps> = ({
   onOpenExportHub,
   onOpenGoogleSheetsModal,
 }) => {
-  const { assignments, grades } = useCourse();
+  const { assignments, grades, gradingScale: rawScale } = useCourse();
+  const gradingScale = rawScale || DEFAULT_GRADING_SCALE;
   const { users } = useAuth();
 
   const students = useMemo(() => users.filter(u => u.role === 'student'), [users]);
@@ -101,9 +102,9 @@ export const MobileGradebook: React.FC<MobileGradebookProps> = ({
 
       const rawSum = rawTotal + rawBonus;
       const scaled = currentAssignment.totalMaxScore > 0
-        ? Math.min(9, (rawSum / currentAssignment.totalMaxScore) * 9)
-        : Math.min(9, rawSum);
-      const pct = (scaled / 9) * 100;
+        ? Math.min(gradingScale.max_score, (rawSum / currentAssignment.totalMaxScore) * gradingScale.max_score)
+        : Math.min(gradingScale.max_score, rawSum);
+      const pct = gradingScale.max_score > 0 ? (scaled / gradingScale.max_score) * 100 : 0;
 
       map.set(s.id, {
         rawTotal: rawSum,
@@ -111,12 +112,12 @@ export const MobileGradebook: React.FC<MobileGradebookProps> = ({
         gradedParts,
         isFullyGraded: questionKeys.length > 0 && gradedParts >= questionKeys.filter(k => !k.isBonus).length,
         hasAnyGrade: gradedParts > 0,
-        numericGrade: calculateNumericGrade(pct),
+        numericGrade: calculateNumericGrade(pct, gradingScale),
       });
     });
 
     return map;
-  }, [students, grades, currentAssignment, questionKeys]);
+  }, [students, grades, currentAssignment, questionKeys, gradingScale]);
 
   // Filtered Students
   const filteredStudents = useMemo(() => {
@@ -204,14 +205,14 @@ export const MobileGradebook: React.FC<MobileGradebookProps> = ({
             <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500 dark:text-zinc-400 font-mono">
               <span>{questionKeys.length} Questions</span>
               <span>·</span>
-              <span>Max {currentAssignment.totalMaxScore} pts (Scale 9.0)</span>
+              <span>Max {currentAssignment.totalMaxScore} pts (Scale {gradingScale.max_score.toFixed(gradingScale.precision ?? 1)})</span>
             </div>
           </div>
 
           {/* Average Badge */}
           <div className="text-right shrink-0">
             <div className="text-sm font-mono font-bold text-[#3B82F6]">
-              {classStats.avgScaled} <span className="text-[10px] text-zinc-400">/ 9.0</span>
+              {classStats.avgScaled} <span className="text-[10px] text-zinc-400">/ {gradingScale.max_score.toFixed(gradingScale.precision ?? 1)}</span>
             </div>
             <div className="text-[10px] text-zinc-500 font-medium">
               Class Average
@@ -311,10 +312,10 @@ export const MobileGradebook: React.FC<MobileGradebookProps> = ({
                   {isGraded ? (
                     <div className="text-right">
                       <div className="text-xs font-mono font-bold text-[#3B82F6]">
-                        {metrics.scaledFinal.toFixed(2)} <span className="text-[10px] text-zinc-400">/ 9.0</span>
+                        {metrics.scaledFinal.toFixed(2)} <span className="text-[10px] text-zinc-400">/ {gradingScale.max_score.toFixed(gradingScale.precision ?? 1)}</span>
                       </div>
                       <div className="text-[10px] text-zinc-500 font-medium">
-                        Grade {metrics.numericGrade.gradeNumber}
+                        {gradingScale.max_score === 9 ? `Grade ${metrics.numericGrade.gradeNumber}` : metrics.numericGrade.displayGrade}
                       </div>
                     </div>
                   ) : (

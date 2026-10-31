@@ -14,7 +14,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useCourse } from '../../context/CourseContext';
 import { Assignment } from '../../types';
-import { calculateNumericGrade } from '../../utils/grading';
+import { calculateNumericGrade, DEFAULT_GRADING_SCALE } from '../../utils/grading';
 
 interface StudentGradesViewProps {
   onRequestRegrade: (assignment: Assignment, questionLabel: string, currentScore: number, maxScore: number) => void;
@@ -22,7 +22,8 @@ interface StudentGradesViewProps {
 
 export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestRegrade }) => {
   const { currentUser } = useAuth();
-  const { assignments: allAssignments, grades } = useCourse();
+  const { assignments: allAssignments, grades, gradingScale: rawScale } = useCourse();
+  const gradingScale = rawScale || DEFAULT_GRADING_SCALE;
 
   // Students never see drafts
   const assignments = React.useMemo(() => allAssignments.filter(a => a.status !== 'draft'), [allAssignments]);
@@ -85,10 +86,10 @@ export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestR
       ? (totalWeightedEarned / totalWeightEvaluated) * 100
       : 0;
 
-    const numericGrade = calculateNumericGrade(cumulativePercentage);
+    const numericGrade = calculateNumericGrade(cumulativePercentage, gradingScale);
 
     return { cumulativePercentage, numericGrade, totalWeightEvaluated };
-  }, [assignments, grades, studentId]);
+  }, [assignments, grades, studentId, gradingScale]);
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -98,7 +99,7 @@ export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestR
         <div className="relative z-10">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#3B82F6] mb-1 sm:mb-2">
             <Award className="w-4 h-4" />
-            <span>Academic Performance · 9-Point Scale</span>
+            <span>Academic Performance · {gradingScale.label || `${gradingScale.max_score}-Point Scale`}</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-bold font-display text-zinc-900 dark:text-zinc-100">
             {currentUser?.full_name || 'Student Grade Portal'}
@@ -108,7 +109,7 @@ export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestR
             <span className="text-zinc-300 dark:text-zinc-700">|</span>
             <span>Sec: {currentUser?.section || '—'}</span>
             <span className="text-zinc-300 dark:text-zinc-700">|</span>
-            <span>Scale 1–9</span>
+            <span>Scale: 0 – {gradingScale.max_score}</span>
           </div>
         </div>
 
@@ -125,9 +126,9 @@ export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestR
             <span className="text-[10px] sm:text-[11px] text-[#3B82F6] block font-medium">Numeric Grade</span>
             <div className="flex items-baseline justify-center gap-1">
               <span className="text-xl sm:text-2xl font-black font-mono text-[#3B82F6]">
-                {totalWeightEvaluated > 0 ? numericGrade.gradeNumber : '—'}
+                {totalWeightEvaluated > 0 ? (gradingScale.max_score === 9 ? numericGrade.gradeNumber : numericGrade.scaledValue.toFixed(gradingScale.precision ?? 1)) : '—'}
               </span>
-              <span className="text-xs text-zinc-400 font-mono">/ 9</span>
+              <span className="text-xs text-zinc-400 font-mono">/ {gradingScale.max_score}</span>
             </div>
             <span className="text-[10px] text-zinc-500 dark:text-zinc-400 block mt-0.5 font-medium truncate">
               {totalWeightEvaluated > 0 ? numericGrade.label : 'Pending'}
@@ -225,11 +226,11 @@ export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestR
 
           const totalRaw = totalEarned + bonusEarned;
           const scaledScore = asg.totalMaxScore > 0
-            ? Math.min(9, Math.round(((totalRaw / asg.totalMaxScore) * 9) * 100) / 100)
-            : Math.min(9, totalRaw);
+            ? Math.min(gradingScale.max_score, Math.round(((totalRaw / asg.totalMaxScore) * gradingScale.max_score) * 100) / 100)
+            : Math.min(gradingScale.max_score, totalRaw);
           
           const asgPercentage = asg.totalMaxScore > 0 ? (totalRaw / asg.totalMaxScore) * 100 : 0;
-          const asgNumericGrade = calculateNumericGrade(asgPercentage);
+          const asgNumericGrade = calculateNumericGrade(asgPercentage, gradingScale);
 
           const isGraded = studentGrade && answeredCount > 0;
 
@@ -276,7 +277,7 @@ export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestR
                     <div className="text-right flex items-center gap-3">
                       <div>
                         <div className="text-sm font-bold font-mono text-zinc-900 dark:text-zinc-100">
-                          {scaledScore.toFixed(2)} <span className="text-xs text-zinc-400">/ 9.0</span>
+                          {scaledScore.toFixed(2)} <span className="text-xs text-zinc-400">/ {gradingScale.max_score.toFixed(gradingScale.precision ?? 1)}</span>
                         </div>
                         <div className="text-[11px] text-zinc-500 font-mono">
                           Raw: {totalRaw.toFixed(1)} / {asg.totalMaxScore} pts
@@ -285,8 +286,12 @@ export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestR
                       </div>
 
                       <div className="px-2.5 py-1 rounded bg-[#3B82F6]/10 border border-[#3B82F6]/20 text-center font-mono">
-                        <span className="text-[10px] text-zinc-400 block uppercase font-medium">Scale 9</span>
-                        <span className="text-xs font-bold text-[#3B82F6]">Grade {asgNumericGrade.gradeNumber}</span>
+                        <span className="text-[10px] text-zinc-400 block uppercase font-medium">
+                          {gradingScale.max_score === 9 ? 'Scale 9' : `Scale ${gradingScale.max_score}`}
+                        </span>
+                        <span className="text-xs font-bold text-[#3B82F6]">
+                          {gradingScale.max_score === 9 ? `Grade ${asgNumericGrade.gradeNumber}` : asgNumericGrade.displayGrade}
+                        </span>
                       </div>
                     </div>
                   ) : (

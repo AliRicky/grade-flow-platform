@@ -168,9 +168,11 @@ VALUES (
   'Fall',
   '2026-2027',
   '{
-    "type": "numeric_9",
-    "min_pass": 3.0,
-    "max_score": 9.0
+    "type": "numeric",
+    "max_score": 9.0,
+    "passing_threshold": 4.0,
+    "precision": 1,
+    "label": "9-Point Scale (Original)"
   }'::jsonb,
   '{
     "allow_student_whatif": true,
