@@ -145,7 +145,9 @@ CREATE TABLE IF NOT EXISTS public.assessments (
 );
 
 -- Backward compatibility view for legacy queries targeting `public.assignments`
-CREATE OR REPLACE VIEW public.assignments AS 
+-- Hardened with `security_invoker = true` so RLS policies on underlying `assessments` table are enforced
+CREATE OR REPLACE VIEW public.assignments 
+WITH (security_invoker = true) AS 
 SELECT 
   id,
   category_id,
