@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing and coverage
+coverage/
+
+# Production build outputs
+dist/
+build/
+
+# Environment files and credentials (STRICT SECURITY GATE)
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
+credentials/
+private_*
+*.pem
+*.key
+*.cert
+
+# Local logs and runtimes
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
+
+# Editor and OS junk
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Vercel and local dev caching
+.vercel
+.turbo
+.next
+.cache/
+
+# Local archives and raw database dumps
+archives/
+*.tar.gz
+*.zip
+*.csv
+*.xlsx

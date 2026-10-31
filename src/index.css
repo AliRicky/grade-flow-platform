@@ -1,0 +1,176 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([class~="dark"], [class~="dark"] *));
+
+@layer base {
+  :root {
+    --watermelon-green: #3B82F6;
+    --watermelon-green-hover: #2563EB;
+    --watermelon-dark: #000000;
+    --watermelon-surface: #09090B;
+    --watermelon-surface-hover: #222222;
+    --watermelon-border: #27272A;
+  }
+
+  html, body {
+    overflow-x: clip;
+    max-width: 100vw;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior-y: auto;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body {
+    font-family: 'Inter', 'Geist', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    touch-action: pan-y;
+  }
+
+  #root {
+    min-height: 100%;
+    touch-action: pan-y;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.02em;
+  }
+  
+  .font-mono, code, kbd, samp, pre {
+    font-family: 'Geist Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+/* Supabase-style subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(161, 161, 170, 0.25);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(62, 207, 142, 0.4);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(63, 63, 70, 0.5);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(62, 207, 142, 0.5);
+}
+
+/* Recharts container and tooltip smoothing */
+.recharts-default-tooltip {
+  transition: transform 120ms ease-out, opacity 120ms ease-out !important;
+}
+
+.recharts-wrapper {
+  outline: none !important;
+}
+
+/* Print Stylesheet for PDF generation & physical printing */
+@media print {
+  body {
+    background-color: #FFFFFF !important;
+    color: #000000 !important;
+  }
+
+  header, nav, footer, button, .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  table {
+    page-break-inside: auto;
+  }
+
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+}
+
+
+/* ── Entrance animations ───────────────────────────────────────────────
+   Components use `animate-in fade-in zoom-in-95 slide-in-from-right`, which come from a
+   Tailwind plugin that is not installed. Provide the few we actually use. */
+@keyframes gf-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes gf-zoom-in { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+@keyframes gf-slide-in-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+.animate-in { animation-duration: 150ms; animation-timing-function: ease-out; animation-fill-mode: both; }
+.animate-in.fade-in { animation-name: gf-fade-in; }
+.animate-in.zoom-in-95 { animation-name: gf-zoom-in; }
+.animate-in.slide-in-from-right { animation-name: gf-slide-in-right; animation-duration: 200ms; }
+
+/* ── Accessible focus ring for keyboard users ───────────────────────── */
+:where(button, [role="button"], a, select, summary):focus-visible {
+  outline: 2px solid #3B82F6;
+  outline-offset: 2px;
+}
+
+/* ── Light-mode contrast ─────────────────────────────────────────────────
+   The brand green (#3B82F6) and the *-400 status colours are tuned for dark surfaces and
+   fail WCAG contrast on white. Darken them in light mode only, and keep the bright
+   versions on the intentionally dark surfaces (top bar, gradebook header). */
+html:not(.dark) .text-\[\#3B82F6\] { color: #0b8a58; }
+html:not(.dark) .bg-\[\#09090B\] .text-\[\#3B82F6\],
+html:not(.dark) .bg-zinc-900 .text-\[\#3B82F6\],
+html:not(.dark) .bg-zinc-900.text-\[\#3B82F6\] { color: #3B82F6; }
+html:not(.dark) .text-emerald-400 { color: #047857; }
+html:not(.dark) .text-teal-400 { color: #0f766e; }
+html:not(.dark) .text-sky-400 { color: #0369a1; }
+html:not(.dark) .text-amber-400 { color: #b45309; }
+html:not(.dark) .text-orange-400 { color: #c2410c; }
+html:not(.dark) .text-rose-400, html:not(.dark) .text-rose-300 { color: #be123c; }
+html:not(.dark) .text-rose-500 { color: #e11d48; }
+
+/* Number inputs: hide spinners inside the dense gradebook grid */
+input[type='number'].font-mono::-webkit-outer-spin-button,
+input[type='number'].font-mono::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type='number'].font-mono { -moz-appearance: textfield; appearance: textfield; }
+
+/* Mobile Chrome & Safari: prevent camera auto-zoom on form focus */
+@media screen and (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Touch-friendly horizontal scroll utility without scrollbars */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
