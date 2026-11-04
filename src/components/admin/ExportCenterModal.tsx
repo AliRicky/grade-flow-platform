@@ -205,7 +205,7 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
             <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 mb-2">
               1. Select Export Scope
             </label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => setExportScope('master')}
@@ -223,7 +223,7 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
                     Master Gradebook
                   </span>
                   <span className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-tight block mt-0.5">
-                    Full class matrix with all assessments & {gradingScale.max_score}-point scale course totals
+                    Full class matrix with all {assignments.length} assessment{assignments.length === 1 ? '' : 's'} & {gradingScale.max_score}-point scale course totals
                   </span>
                 </div>
               </button>

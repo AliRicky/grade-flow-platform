@@ -601,18 +601,18 @@ export const AssignmentBuilder: React.FC<AssignmentBuilderProps> = ({
                 }`}
               >
                 {/* Question Header Row */}
-                <div className="flex items-center justify-between gap-3 mb-3">
-                  <div className="flex items-center gap-2 flex-1">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-3">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
                     {/* Drag Handle */}
                     <div
-                      className="cursor-grab active:cursor-grabbing text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 rounded"
+                      className="cursor-grab active:cursor-grabbing text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 rounded shrink-0"
                       title="Drag to reorder"
                     >
                       <GripVertical className="w-4 h-4" />
                     </div>
 
                     {/* Question Number Badge */}
-                    <div className="w-6 h-6 rounded bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center font-mono font-bold text-xs text-zinc-700 dark:text-zinc-300">
+                    <div className="w-6 h-6 rounded bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center font-mono font-bold text-xs text-zinc-700 dark:text-zinc-300 shrink-0">
                       {question.number}
                     </div>
 
@@ -622,70 +622,74 @@ export const AssignmentBuilder: React.FC<AssignmentBuilderProps> = ({
                       value={question.title}
                       onChange={e => updateQuestionTitle(qIdx, e.target.value)}
                       placeholder={`Question ${question.number} Title...`}
-                      className="flex-1 px-2.5 py-1.5 text-xs font-semibold rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
+                      className="flex-1 min-w-0 px-2.5 py-1.5 text-xs font-semibold rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
                     />
                   </div>
 
                   {/* Right side controls */}
-                  <div className="flex items-center gap-2">
-                    {/* Bonus Toggle */}
-                    <button
-                      type="button"
-                      onClick={() => toggleQuestionBonus(qIdx)}
-                      className={`px-2 py-1 text-[11px] font-medium rounded transition-colors ${
-                        question.isBonus
-                          ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-semibold'
-                          : 'text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300'
-                      }`}
-                      title="Toggle Bonus Question"
-                    >
-                      {question.isBonus ? 'Bonus Problem' : 'Regular'}
-                    </button>
+                  <div className="flex flex-wrap items-center justify-between sm:justify-end gap-1.5 pl-8 sm:pl-0">
+                    <div className="flex items-center gap-1.5">
+                      {/* Bonus Toggle */}
+                      <button
+                        type="button"
+                        onClick={() => toggleQuestionBonus(qIdx)}
+                        className={`px-2 py-1 text-[11px] font-medium rounded-lg transition-colors cursor-pointer ${
+                          question.isBonus
+                            ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-semibold'
+                            : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 bg-zinc-100 dark:bg-zinc-800'
+                        }`}
+                        title="Toggle Bonus Question"
+                      >
+                        {question.isBonus ? 'Bonus' : 'Regular'}
+                      </button>
 
-                    {/* Multipart switch */}
-                    <button
-                      type="button"
-                      onClick={() => toggleMultipart(qIdx)}
-                      className="px-2 py-1 text-[11px] font-medium text-[#3B82F6] bg-[#3B82F6]/10 hover:bg-[#3B82F6]/20 border border-[#3B82F6]/20 rounded transition-colors"
-                    >
-                      {hasSubQuestions ? 'Multipart (Sub-parts)' : 'Single Point'}
-                    </button>
+                      {/* Multipart switch */}
+                      <button
+                        type="button"
+                        onClick={() => toggleMultipart(qIdx)}
+                        className="px-2 py-1 text-[11px] font-medium text-[#3B82F6] bg-[#3B82F6]/10 hover:bg-[#3B82F6]/20 border border-[#3B82F6]/20 rounded-lg transition-colors cursor-pointer"
+                      >
+                        {hasSubQuestions ? 'Multipart' : 'Single Point'}
+                      </button>
+                    </div>
 
-                    {/* Reorder Buttons (Accessibility & Mobile) */}
-                    <button
-                      type="button"
-                      disabled={qIdx === 0}
-                      onClick={() => moveQuestion(qIdx, qIdx - 1)}
-                      className="p-1 text-zinc-400 hover:text-zinc-700 disabled:opacity-30"
-                      title="Move Up"
-                    >
-                      <ArrowUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={qIdx === questions.length - 1}
-                      onClick={() => moveQuestion(qIdx, qIdx + 1)}
-                      className="p-1 text-zinc-400 hover:text-zinc-700 disabled:opacity-30"
-                      title="Move Down"
-                    >
-                      <ArrowDown className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {/* Reorder Buttons (Accessibility & Mobile) */}
+                      <button
+                        type="button"
+                        disabled={qIdx === 0}
+                        onClick={() => moveQuestion(qIdx, qIdx - 1)}
+                        className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 cursor-pointer"
+                        title="Move Up"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={qIdx === questions.length - 1}
+                        onClick={() => moveQuestion(qIdx, qIdx + 1)}
+                        className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 cursor-pointer"
+                        title="Move Down"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
 
-                    {/* Delete Question */}
-                    <button
-                      type="button"
-                      onClick={() => removeQuestion(qIdx)}
-                      className="p-1 text-rose-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors"
-                      title="Delete Question"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                      {/* Delete Question */}
+                      <button
+                        type="button"
+                        onClick={() => removeQuestion(qIdx)}
+                        className="p-1.5 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors cursor-pointer"
+                        title="Delete Question"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
                 {/* Question Body: Single or Nested Sub-questions */}
                 {!hasSubQuestions ? (
-                  <div className="flex items-center gap-3 pl-8">
+                  <div className="flex flex-wrap items-center gap-3 pl-2 sm:pl-8">
                     <label className="text-xs text-zinc-500 dark:text-zinc-400">
                       Total Max Score for Q{question.number}:
                     </label>
@@ -702,7 +706,7 @@ export const AssignmentBuilder: React.FC<AssignmentBuilderProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <div className="pl-8 space-y-2">
+                  <div className="pl-2 sm:pl-8 space-y-2">
                     <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 flex items-center justify-between">
                       <span>Nested Sub-Questions (Dynamic Parts)</span>
                       <span className="font-mono text-zinc-600 dark:text-zinc-300">
@@ -715,48 +719,52 @@ export const AssignmentBuilder: React.FC<AssignmentBuilderProps> = ({
                       {question.subQuestions.map((sq, sqIdx) => (
                         <div
                           key={sq.id}
-                          className="flex items-center gap-2 p-2 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-100 dark:border-zinc-800"
+                          className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-2.5 sm:p-2 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-100 dark:border-zinc-800"
                         >
-                          {/* Part label (e.g. 1-a or 1 (I)) */}
-                          <input
-                            type="text"
-                            value={sq.label}
-                            onChange={e => updateSubQuestion(qIdx, sqIdx, { label: e.target.value })}
-                            placeholder="Label (1-a)"
-                            className="w-16 px-2 py-1 text-xs font-mono font-semibold rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#3B82F6] text-center"
-                          />
-
-                          {/* Part description / topic */}
-                          <input
-                            type="text"
-                            value={sq.title}
-                            onChange={e => updateSubQuestion(qIdx, sqIdx, { title: e.target.value })}
-                            placeholder="Part title or prompt..."
-                            className="flex-1 px-2.5 py-1 text-xs rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#3B82F6]"
-                          />
-
-                          {/* Max points */}
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            {/* Part label (e.g. 1-a or 1 (I)) */}
                             <input
-                              type="number"
-                              min="0.5"
-                              step="0.5"
-                              value={sq.maxScore}
-                              onChange={e => updateSubQuestion(qIdx, sqIdx, { maxScore: parseFloat(e.target.value) || 0 })}
-                              className="w-16 px-2 py-1 text-xs font-mono text-center rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#3B82F6]"
+                              type="text"
+                              value={sq.label}
+                              onChange={e => updateSubQuestion(qIdx, sqIdx, { label: e.target.value })}
+                              placeholder="1-a"
+                              className="w-16 px-2 py-1.5 sm:py-1 text-xs font-mono font-semibold rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#3B82F6] text-center shrink-0"
                             />
-                            <span className="text-xs text-zinc-400 font-mono">pts</span>
+
+                            {/* Part description / topic */}
+                            <input
+                              type="text"
+                              value={sq.title}
+                              onChange={e => updateSubQuestion(qIdx, sqIdx, { title: e.target.value })}
+                              placeholder="Part title or prompt..."
+                              className="flex-1 min-w-0 px-2.5 py-1.5 sm:py-1 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#3B82F6]"
+                            />
                           </div>
 
-                          {/* Delete Subquestion */}
-                          <button
-                            type="button"
-                            onClick={() => removeSubQuestion(qIdx, sqIdx)}
-                            className="p-1 text-zinc-400 hover:text-rose-500 transition-colors"
-                            title="Remove sub-part"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center justify-end gap-2 shrink-0">
+                            {/* Max points */}
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min="0.5"
+                                step="0.5"
+                                value={sq.maxScore}
+                                onChange={e => updateSubQuestion(qIdx, sqIdx, { maxScore: parseFloat(e.target.value) || 0 })}
+                                className="w-16 px-2 py-1.5 sm:py-1 text-xs font-mono text-center rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#3B82F6]"
+                              />
+                              <span className="text-xs text-zinc-400 font-mono">pts</span>
+                            </div>
+
+                            {/* Delete Subquestion */}
+                            <button
+                              type="button"
+                              onClick={() => removeSubQuestion(qIdx, sqIdx)}
+                              className="p-1.5 text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition-colors cursor-pointer"
+                              title="Remove sub-part"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>

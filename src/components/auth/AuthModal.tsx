@@ -118,7 +118,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <input
                 type="text"
                 required
-                placeholder="e.g. 4002019015 or admin"
+                placeholder="e.g. STU-1001 or admin"
                 value={studentId}
                 onChange={e => setStudentId(e.target.value)}
                 className="w-full h-11 pl-9 pr-3 py-2 text-base sm:text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-[#3B82F6]"

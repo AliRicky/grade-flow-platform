@@ -160,7 +160,8 @@ export const AnalyticsDashboard: React.FC = () => {
       strugglingStudentsCount: number; // scored < 70% of max
       avgDeduction: number;
       isBonus?: boolean;
-      status: 'high_struggle' | 'moderate_struggle' | 'mastered';
+      status: 'high_struggle' | 'moderate_struggle' | 'mastered' | 'unassessed';
+      gradedCount: number;
     }
 
     const items: StruggleItem[] = [];
@@ -184,9 +185,16 @@ export const AnalyticsDashboard: React.FC = () => {
             }
           });
 
-          const avg = count > 0 ? scoreSum / count : sq.maxScore;
-          const pct = sq.maxScore > 0 ? (avg / sq.maxScore) * 100 : 100;
-          const status = pct < 65 ? 'high_struggle' : pct < 80 ? 'moderate_struggle' : 'mastered';
+          // Strictly unassessed when no student grades are recorded
+          const avg = count > 0 ? scoreSum / count : 0;
+          const pct = count > 0 && sq.maxScore > 0 ? (avg / sq.maxScore) * 100 : 0;
+          const status = count === 0
+            ? 'unassessed'
+            : pct < 65
+            ? 'high_struggle'
+            : pct < 80
+            ? 'moderate_struggle'
+            : 'mastered';
 
           items.push({
             id: `${q.id}_${sq.id}`,
@@ -196,9 +204,10 @@ export const AnalyticsDashboard: React.FC = () => {
             avgScore: Math.round(avg * 10) / 10,
             percentage: Math.round(pct),
             strugglingStudentsCount: strugglingCount,
-            avgDeduction: Math.round((sq.maxScore - avg) * 10) / 10,
+            avgDeduction: count > 0 ? Math.round((sq.maxScore - avg) * 10) / 10 : 0,
             isBonus: q.isBonus,
             status,
+            gradedCount: count,
           });
         });
       } else {
@@ -218,9 +227,16 @@ export const AnalyticsDashboard: React.FC = () => {
           }
         });
 
-        const avg = count > 0 ? scoreSum / count : max;
-        const pct = max > 0 ? (avg / max) * 100 : 100;
-        const status = pct < 65 ? 'high_struggle' : pct < 80 ? 'moderate_struggle' : 'mastered';
+        // Strictly unassessed when no student grades are recorded
+        const avg = count > 0 ? scoreSum / count : 0;
+        const pct = count > 0 && max > 0 ? (avg / max) * 100 : 0;
+        const status = count === 0
+          ? 'unassessed'
+          : pct < 65
+          ? 'high_struggle'
+          : pct < 80
+          ? 'moderate_struggle'
+          : 'mastered';
 
         items.push({
           id: q.id,
@@ -230,16 +246,21 @@ export const AnalyticsDashboard: React.FC = () => {
           avgScore: Math.round(avg * 10) / 10,
           percentage: Math.round(pct),
           strugglingStudentsCount: strugglingCount,
-          avgDeduction: Math.round((max - avg) * 10) / 10,
+          avgDeduction: count > 0 ? Math.round((max - avg) * 10) / 10 : 0,
           isBonus: q.isBonus,
           status,
+          gradedCount: count,
         });
       }
     });
 
-    // Sort by lowest percentage to surface struggle points first
-    return items.sort((a, b) => a.percentage - b.percentage);
-  }, [currentAssignment, students, grades]);
+    // Sort by lowest percentage to surface struggle points first (evaluated questions first)
+    return items.sort((a, b) => {
+      if (a.gradedCount > 0 && b.gradedCount === 0) return -1;
+      if (a.gradedCount === 0 && b.gradedCount > 0) return 1;
+      return a.percentage - b.percentage;
+    });
+  }, [currentAssignment, students, grades, gradingScale]);
 
   // 3. Trends across all 5 Homeworks and 5 Quizzes
   const assessmentTrendsData = useMemo(() => {
@@ -292,9 +313,20 @@ export const AnalyticsDashboard: React.FC = () => {
     });
   }, [assignments, students, grades]);
 
-  // Top struggle points for AI/pedagogical recommendations
+  // Top struggle points for AI/pedagogical recommendations (strictly requires evaluated student struggles)
   const topStruggles = useMemo(() => {
-    return questionStruggleData.filter(q => !q.isBonus && q.percentage < 80).slice(0, 3);
+    return questionStruggleData
+      .filter(q => !q.isBonus && q.gradedCount > 0 && q.strugglingStudentsCount > 0 && q.percentage < 80)
+      .slice(0, 3);
+  }, [questionStruggleData]);
+
+  // Aggregate count of questions requiring intervention
+  const struggleQuestionsCount = useMemo(() => {
+    return questionStruggleData.filter(q => q.status === 'high_struggle').length;
+  }, [questionStruggleData]);
+
+  const moderateStruggleCount = useMemo(() => {
+    return questionStruggleData.filter(q => q.status === 'moderate_struggle').length;
   }, [questionStruggleData]);
 
   // Custom Recharts Dark Tooltip
@@ -372,7 +404,7 @@ export const AnalyticsDashboard: React.FC = () => {
             Assignment Analytics & Struggle Index
           </h2>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-xl">
-            Statistical breakdown of class score distributions, question difficulty hierarchies, and concept struggle points across all 5 homeworks and 5 quizzes.
+            Statistical breakdown of class score distributions, question difficulty hierarchies, and concept struggle points across {assignments.length} assessment{assignments.length === 1 ? '' : 's'}.
           </p>
         </div>
 
@@ -384,14 +416,14 @@ export const AnalyticsDashboard: React.FC = () => {
               onChange={e => setSelectedAsgId(e.target.value)}
               className="w-full sm:w-auto appearance-none bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 text-xs font-semibold rounded-xl pl-3 pr-8 py-2.5 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/20 cursor-pointer transition-colors duration-150"
             >
-              <optgroup label="Homework Assignments (5)">
+              <optgroup label={`Homework Assignments (${assignments.filter(a => a.type === 'homework').length})`}>
                 {assignments.filter(a => a.type === 'homework').map(a => (
                   <option key={a.id} value={a.id}>
                     {a.shortCode}: {a.title}
                   </option>
                 ))}
               </optgroup>
-              <optgroup label="Quizzes (5)">
+              <optgroup label={`Quizzes (${assignments.filter(a => a.type === 'quiz').length})`}>
                 {assignments.filter(a => a.type === 'quiz').map(a => (
                   <option key={a.id} value={a.id}>
                     {a.shortCode}: {a.title}
@@ -422,7 +454,7 @@ export const AnalyticsDashboard: React.FC = () => {
                   : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200'
               }`}
             >
-              Struggles ({questionStruggleData.length})
+              Struggles ({struggleQuestionsCount + moderateStruggleCount})
             </button>
             <button
               onClick={() => setActiveMetricTab('trends')}
@@ -447,10 +479,12 @@ export const AnalyticsDashboard: React.FC = () => {
           </div>
           <div className="text-xl sm:text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-100">
             {distributionData.classAverage.toFixed(2)}{' '}
-            <span className="text-[10px] sm:text-xs font-normal text-zinc-400">/ {gradingScale.max_score.toFixed(gradingScale.precision ?? 1)}</span>
+            <span className="text-[10px] sm:text-xs font-normal text-zinc-400">/ 9.0</span>
           </div>
           <div className="text-[10px] sm:text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 font-mono">
-            {gradingScale.max_score > 0 ? Math.round((distributionData.classAverage / gradingScale.max_score) * 100) : 0}% overall mastery
+            {distributionData.gradedStudentsCount > 0
+              ? `${Math.round((distributionData.classAverage / 9) * 100)}% overall mastery`
+              : 'No scores entered'}
           </div>
         </div>
 
@@ -460,10 +494,10 @@ export const AnalyticsDashboard: React.FC = () => {
             <AlertTriangle className="w-4 h-4 text-rose-500" />
           </div>
           <div className="text-xl sm:text-2xl font-bold font-mono text-rose-600 dark:text-rose-400">
-            {questionStruggleData.filter(q => q.status === 'high_struggle').length}
+            {struggleQuestionsCount}
           </div>
           <div className="text-[10px] sm:text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Questions &lt;65% avg
+            {distributionData.gradedStudentsCount > 0 ? 'Questions <65% avg' : 'No evaluations yet'}
           </div>
         </div>
 
@@ -476,7 +510,7 @@ export const AnalyticsDashboard: React.FC = () => {
             {questionStruggleData.filter(q => q.status === 'mastered').length}
           </div>
           <div className="text-[10px] sm:text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Questions &gt;80% rate
+            {distributionData.gradedStudentsCount > 0 ? 'Questions >80% rate' : 'No evaluations yet'}
           </div>
         </div>
 
@@ -489,7 +523,9 @@ export const AnalyticsDashboard: React.FC = () => {
             {distributionData.gradedStudentsCount} / {students.length}
           </div>
           <div className="text-[10px] sm:text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
-            100% evaluated
+            {students.length > 0
+              ? `${Math.round((distributionData.gradedStudentsCount / students.length) * 100)}% evaluated`
+              : '0% evaluated'}
           </div>
         </div>
       </div>
@@ -507,12 +543,12 @@ export const AnalyticsDashboard: React.FC = () => {
                     Grade Distribution Curve: {currentAssignment?.shortCode}
                   </h3>
                   <span className="text-xs text-zinc-500">
-                    Histogram of cohort scores scaled out of {gradingScale.max_score.toFixed(gradingScale.precision ?? 1)} ({gradingScale.label || `${gradingScale.max_score}-Point Scale`})
+                    Histogram of cohort scores scaled out of 9.0 (Scale of 9)
                   </span>
                 </div>
                 <div className="text-xs font-mono text-zinc-500 flex items-center gap-2 mt-1 sm:mt-0">
                   <span className="w-2.5 h-2.5 rounded-full bg-[#3B82F6] inline-block" />
-                  <span>Mean: {distributionData.classAverage.toFixed(2)} / {gradingScale.max_score.toFixed(gradingScale.precision ?? 1)}</span>
+                  <span>Mean: {distributionData.classAverage.toFixed(2)}/9.0</span>
                 </div>
               </div>
 
@@ -533,18 +569,20 @@ export const AnalyticsDashboard: React.FC = () => {
                       tickLine={false}
                     />
                     <Tooltip content={<CustomScoreTooltip />} cursor={{ fill: 'rgba(255, 255, 255, 0.04)' }} />
-                    <ReferenceLine
-                      x={
-                        distributionData.classAverage >= 18 ? '18–20' :
-                        distributionData.classAverage >= 16 ? '16–18' :
-                        distributionData.classAverage >= 14 ? '14–16' :
-                        distributionData.classAverage >= 12 ? '12–14' :
-                        distributionData.classAverage >= 10 ? '10–12' : '< 10'
-                      }
-                      stroke="#3B82F6"
-                      strokeDasharray="4 4"
-                      label={{ value: 'Mean', fill: '#3B82F6', fontSize: 11, position: 'top' }}
-                    />
+                    {distributionData.gradedStudentsCount > 0 && (
+                      <ReferenceLine
+                        x={
+                          distributionData.classAverage >= 8.1 ? '8.1–9.0' :
+                          distributionData.classAverage >= 7.2 ? '7.2–8.0' :
+                          distributionData.classAverage >= 6.3 ? '6.3–7.1' :
+                          distributionData.classAverage >= 5.4 ? '5.4–6.2' :
+                          distributionData.classAverage >= 4.5 ? '4.5–5.3' : '< 4.5'
+                        }
+                        stroke="#3B82F6"
+                        strokeDasharray="4 4"
+                        label={{ value: `Mean (${distributionData.classAverage.toFixed(1)})`, fill: '#3B82F6', fontSize: 11, position: 'top' }}
+                      />
+                    )}
                     <Bar dataKey="count" radius={[6, 6, 0, 0]} maxBarSize={56} animationDuration={600}>
                       {distributionData.buckets.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color} opacity={0.88} />
@@ -590,44 +628,58 @@ export const AnalyticsDashboard: React.FC = () => {
                 </span>
               </div>
 
-              <div className="h-80 w-full min-w-0 overflow-y-auto">
-                <ResponsiveContainer width="100%" height={Math.max(280, questionStruggleData.length * 36)} minWidth={0}>
-                  <BarChart
-                    layout="vertical"
-                    data={questionStruggleData}
-                    margin={{ top: 5, right: 30, left: 25, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#27272A" horizontal={false} opacity={0.4} />
-                    <XAxis
-                      type="number"
-                      domain={[0, 100]}
-                      unit="%"
-                      tick={{ fill: '#A1A1AA', fontSize: 10, fontFamily: 'JetBrains Mono' }}
-                      axisLine={{ stroke: '#3F3F46' }}
-                    />
-                    <YAxis
-                      dataKey="label"
-                      type="category"
-                      tick={{ fill: '#D4D4D8', fontSize: 11, fontFamily: 'JetBrains Mono', fontWeight: 600 }}
-                      axisLine={{ stroke: '#3F3F46' }}
-                      width={60}
-                    />
-                    <Tooltip content={<CustomStruggleTooltip />} cursor={{ fill: 'rgba(255, 255, 255, 0.04)' }} />
-                    <ReferenceLine x={70} stroke="#EF4444" strokeDasharray="3 3" label={{ value: 'Struggle Threshold (70%)', fill: '#EF4444', fontSize: 10, position: 'insideTopRight' }} />
-                    <Bar dataKey="percentage" radius={[0, 4, 4, 0]} barSize={18} animationDuration={600}>
-                      {questionStruggleData.map((entry, index) => {
-                        const fill = entry.percentage < 65 ? '#EF4444' : entry.percentage < 80 ? '#F59E0B' : '#10B981';
-                        return <Cell key={`cell-struggle-${index}`} fill={fill} opacity={0.9} />;
-                      })}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              {distributionData.gradedStudentsCount === 0 ? (
+                <div className="h-72 w-full flex flex-col items-center justify-center p-6 text-center rounded-2xl bg-zinc-50/50 dark:bg-zinc-900/30 border border-dashed border-zinc-200 dark:border-zinc-800">
+                  <div className="w-10 h-10 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400 mb-3">
+                    <AlertTriangle className="w-5 h-5 text-zinc-400" />
+                  </div>
+                  <h4 className="text-sm font-bold text-zinc-800 dark:text-zinc-200">No Grades Recorded Yet</h4>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-sm mt-1">
+                    No evaluations have been entered for this assessment. Enter scores in the Gradebook to generate difficulty diagnostics.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="h-80 w-full min-w-0 overflow-y-auto">
+                    <ResponsiveContainer width="100%" height={Math.max(280, questionStruggleData.length * 36)} minWidth={0}>
+                      <BarChart
+                        layout="vertical"
+                        data={questionStruggleData}
+                        margin={{ top: 5, right: 30, left: 25, bottom: 5 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#27272A" horizontal={false} opacity={0.4} />
+                        <XAxis
+                          type="number"
+                          domain={[0, 100]}
+                          unit="%"
+                          tick={{ fill: '#A1A1AA', fontSize: 10, fontFamily: 'JetBrains Mono' }}
+                          axisLine={{ stroke: '#3F3F46' }}
+                        />
+                        <YAxis
+                          dataKey="label"
+                          type="category"
+                          tick={{ fill: '#D4D4D8', fontSize: 11, fontFamily: 'JetBrains Mono', fontWeight: 600 }}
+                          axisLine={{ stroke: '#3F3F46' }}
+                          width={60}
+                        />
+                        <Tooltip content={<CustomStruggleTooltip />} cursor={{ fill: 'rgba(255, 255, 255, 0.04)' }} />
+                        <ReferenceLine x={70} stroke="#EF4444" strokeDasharray="3 3" label={{ value: 'Struggle Threshold (70%)', fill: '#EF4444', fontSize: 10, position: 'insideTopRight' }} />
+                        <Bar dataKey="percentage" radius={[0, 4, 4, 0]} barSize={18} animationDuration={600}>
+                          {questionStruggleData.map((entry, index) => {
+                            const fill = entry.status === 'unassessed' ? '#71717A' : entry.percentage < 65 ? '#EF4444' : entry.percentage < 80 ? '#F59E0B' : '#10B981';
+                            return <Cell key={`cell-struggle-${index}`} fill={fill} opacity={0.9} />;
+                          })}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
 
-              <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-[11px] text-zinc-500">
-                <span>Hover over any question bar to view prompt details and deduction counts</span>
-                <span className="font-mono text-rose-400">Red: &lt;65% · Amber: 65-80% · Green: &gt;80%</span>
-              </div>
+                  <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between text-[11px] text-zinc-500">
+                    <span>Hover over any question bar to view prompt details and deduction counts</span>
+                    <span className="font-mono text-rose-400">Red: &lt;65% · Amber: 65-80% · Green: &gt;80%</span>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -709,7 +761,9 @@ export const AnalyticsDashboard: React.FC = () => {
             <div className="space-y-2.5">
               {topStruggles.length === 0 ? (
                 <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-100 dark:border-zinc-800 text-xs text-zinc-500">
-                  No critical struggle points identified on this assessment. High mastery across all questions!
+                  {distributionData.gradedStudentsCount === 0
+                    ? 'No evaluations recorded for this assessment yet. Enter grades in the Gradebook to view struggle diagnostics.'
+                    : 'No critical struggle points identified on this assessment. High mastery across evaluated questions!'}
                 </div>
               ) : (
                 topStruggles.map((struggle, idx) => (
