@@ -31,6 +31,7 @@ interface NavbarProps {
 const ADMIN_NAV = [
   { id: 'overview', label: 'Overview' },
   { id: 'gradebook', label: 'Gradebook' },
+  { id: 'semester-report', label: 'Semester Report' },
   { id: 'builder', label: 'Assignments' },
   { id: 'delegation', label: 'TA Team' },
   { id: 'overdue', label: 'Reminders' },

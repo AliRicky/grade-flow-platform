@@ -4,12 +4,12 @@
 
 @layer base {
   :root {
-    --watermelon-green: #3B82F6;
-    --watermelon-green-hover: #2563EB;
-    --watermelon-dark: #000000;
-    --watermelon-surface: #09090B;
-    --watermelon-surface-hover: #222222;
-    --watermelon-border: #27272A;
+    --theme-primary: #3B82F6;
+    --theme-primary-hover: #2563EB;
+    --theme-dark: #000000;
+    --theme-surface: #09090B;
+    --theme-surface-hover: #222222;
+    --theme-border: #27272A;
   }
 
   html, body {

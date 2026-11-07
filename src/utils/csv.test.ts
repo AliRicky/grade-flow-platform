@@ -36,9 +36,9 @@ describe('csv utils', () => {
     const csv = generateCSVContent(assignment, students, gradesMap);
     
     // Check headers
-    expect(csv).toContain('First Name,Last Name,Student ID,"Q1","Q2",Bonus Points,Raw Total,Final Scaled (/9.0),Numeric Grade (Scale 9)');
+    expect(csv).toContain('First Name,Last Name,Student ID,"Q1","Q2",Bonus Points,Raw Total,Final Scaled (/1.0),Percentage');
     
     // Check row
-    expect(csv).toContain('"John","Doe","12345",45,40,0,85.00,7.65,"Grade 8"');
+    expect(csv).toContain('"John","Doe","12345",45,40,0,85.00,0.85,"85%"');
   });
 });

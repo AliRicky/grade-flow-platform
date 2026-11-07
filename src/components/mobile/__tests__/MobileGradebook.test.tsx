@@ -7,7 +7,6 @@ import { MobileBottomNav } from '../MobileBottomNav';
 import { MobileMoreSheet } from '../MobileMoreSheet';
 import { MobileGradebook } from '../MobileGradebook';
 import { MobileGradingDrawer } from '../MobileGradingDrawer';
-import { DEFAULT_GRADING_SCALE } from '../../../utils/grading';
 
 // Mock contexts
 const mockUpdateGrade = vi.fn();
@@ -94,8 +93,6 @@ vi.mock('../../../context/CourseContext', () => ({
       { id: 'n1', title: 'New Submission', message: 'Ada submitted HW1', read: false, type: 'grade' }
     ],
     isOnline: true,
-    gradingScale: DEFAULT_GRADING_SCALE,
-    updateGradingScale: vi.fn(),
     updateGrade: mockUpdateGrade,
   }))
 }));

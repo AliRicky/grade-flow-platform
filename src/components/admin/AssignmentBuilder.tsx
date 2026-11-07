@@ -79,6 +79,7 @@ export const AssignmentBuilder: React.FC<AssignmentBuilderProps> = ({
   const [releaseDate, setReleaseDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [weightPercent, setWeightPercent] = useState(8);
+  const [targetScale, setTargetScale] = useState(1.0);
   const [status, setStatus] = useState<Assignment['status']>('active');
   const [questions, setQuestions] = useState<Question[]>([]);
   const [draggedQIndex, setDraggedQIndex] = useState<number | null>(null);
@@ -99,6 +100,7 @@ export const AssignmentBuilder: React.FC<AssignmentBuilderProps> = ({
       setReleaseDate(toLocalInput(new Date().toISOString()));
       setDueDate(toLocalInput(due.toISOString()));
       setWeightPercent(8);
+      setTargetScale(1.0);
       setStatus('draft');
       setQuestions([
         {
@@ -121,6 +123,7 @@ export const AssignmentBuilder: React.FC<AssignmentBuilderProps> = ({
       setReleaseDate(toLocalInput(current.releaseDate));
       setDueDate(toLocalInput(current.dueDate));
       setWeightPercent(current.weightPercent);
+      setTargetScale(current.targetScale ?? 1.0);
       setStatus(current.status);
       setQuestions(JSON.parse(JSON.stringify(Array.isArray(current.questions) ? current.questions : [])));
     }
@@ -316,6 +319,7 @@ export const AssignmentBuilder: React.FC<AssignmentBuilderProps> = ({
       releaseDate: fromLocalInput(releaseDate),
       dueDate: fromLocalInput(dueDate),
       weightPercent,
+      targetScale: Number.isFinite(targetScale) && targetScale > 0 ? targetScale : 1.0,
       status,
       questions,
       totalMaxScore: totalStandardPoints,
@@ -517,6 +521,20 @@ export const AssignmentBuilder: React.FC<AssignmentBuilderProps> = ({
               max="100"
               value={weightPercent}
               onChange={e => setWeightPercent(parseFloat(e.target.value) || 0)}
+              className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/30 font-mono"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+              Target Scale / Multiplier (e.g. 1.0 or 3.0)
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              value={targetScale}
+              onChange={e => setTargetScale(parseFloat(e.target.value) || 1.0)}
               className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/30 font-mono"
             />
           </div>

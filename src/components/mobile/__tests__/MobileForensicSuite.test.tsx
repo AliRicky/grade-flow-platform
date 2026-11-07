@@ -9,7 +9,6 @@ import { MobileGradingDrawer } from '../MobileGradingDrawer';
 import { MobileMoreSheet } from '../MobileMoreSheet';
 import { useCourse } from '../../../context/CourseContext';
 import { useAuth } from '../../../context/AuthContext';
-import { DEFAULT_GRADING_SCALE } from '../../../utils/grading';
 
 // Mocks
 const mockUpdateGrade = vi.fn();
@@ -89,8 +88,6 @@ describe('Mobile Forensic & Quality Assurance Suite', () => {
       regrades: [],
       notifications: [],
       isOnline: true,
-      gradingScale: DEFAULT_GRADING_SCALE,
-      updateGradingScale: vi.fn(),
       updateGrade: mockUpdateGrade,
       resetToFreshCourse: mockResetToFreshCourse,
       clearAllGrades: mockClearAllGrades,
@@ -166,7 +163,7 @@ describe('Mobile Forensic & Quality Assurance Suite', () => {
       );
 
       expect(screen.getByText('Ada Lovelace')).toBeInTheDocument();
-      expect(screen.getByText('0.00 / 9.0')).toBeInTheDocument();
+      expect(screen.getByText('0.00 / 1.0')).toBeInTheDocument();
 
       // Both inputs should be empty placeholders
       const numberInputs = screen.getAllByPlaceholderText('—');

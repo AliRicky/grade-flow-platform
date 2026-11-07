@@ -1,271 +1,324 @@
-import { GradingScale } from '../types';
-
 /**
- * Dynamic Scoring & Grading Engine
- * Supports arbitrary, per-course scoring scales (e.g. 9-point scale, 20-point scale,
- * 100-point percentage scale, 4.0 GPA scale, or user-defined custom numeric scales).
+ * Proportional Normalized Grading Engine
+ *
+ * Implements:
+ * 1. roundUpToTwoDecimals with IEEE-754 precision defense (ceil toward +inf to favor students: 2.13453 -> 2.14).
+ * 2. Auto-calculated denominator summing standard (non-bonus) questions only.
+ * 3. Uncapped bonus overflow allowing assignment scores and semester totals to exceed nominal scales (e.g. 1.09 / 1.0, 5.40 / 5.0).
+ * 4. Customizable assignment scales (targetScale, e.g. 1.0 or 3.0) and customizable semester total target scale (e.g. 5, 6, 9, 20).
+ * 5. Exact floating-point math maintained across intermediate steps.
  */
 
-export interface NumericGrade {
-  gradeNumber: number; // Integer grade or rounded scaled score
-  scaledValue: number; // Continuous score out of scale.max_score (e.g. 8.6 / 9.0 or 17.5 / 20.0)
-  displayGrade: string; // e.g. "Grade 9" (scale 9) or "18.5 / 20"
-  label: string; // e.g. "Mastery / Distinction"
-  colorClass: string;
-  badgeBg: string;
-  isPassing: boolean;
-  maxScore: number;
+import {
+  Assignment,
+  StudentAssignmentCalculation,
+  StudentAssignmentGrade,
+  StudentScoreMap,
+  SemesterStudentSummary,
+  User,
+} from '../types';
+
+/**
+ * Rounds a number up to two decimal places (ceil toward positive infinity),
+ * defending against IEEE-754 floating point representation artifacts.
+ * E.g., 2.13453 -> 2.14, 0.1 + 0.2 -> 0.30, 4.7333... -> 4.74.
+ */
+export function roundUpToTwoDecimals(val: number): number {
+  if (!Number.isFinite(val)) return 0;
+  const scaled = val * 100;
+  const roundedScaled = Math.round(scaled);
+  // Defend against IEEE-754 floating point imprecision (e.g., 0.1 + 0.2 = 0.30000000000000004 or 1.0000000000000002)
+  if (Math.abs(scaled - roundedScaled) < 1e-8) {
+    return roundedScaled / 100;
+  }
+  return Math.ceil(scaled) / 100;
 }
 
-export const DEFAULT_GRADING_SCALE: GradingScale = {
-  type: 'numeric',
-  max_score: 9.0,
-  passing_threshold: 4.0,
-  precision: 1,
-  label: '9-Point Scale (Original)',
-};
+/**
+ * Automatically calculates the denominator for an assignment:
+ * sums all standard (non-bonus) question and subquestion maximum points.
+ * Bonus question points are strictly excluded from the denominator.
+ */
+export function calculateAssignmentDenominator(assignment: Assignment): number {
+  let standardTotal = 0;
+  const questions = Array.isArray(assignment?.questions) ? assignment.questions : [];
+  questions.forEach(q => {
+    if (q.isBonus) return; // Bonus question points are excluded from the denominator
+    if (Array.isArray(q.subQuestions) && q.subQuestions.length > 0) {
+      q.subQuestions.forEach(sq => {
+        if (!sq.isBonus) {
+          standardTotal += Number(sq.maxScore) || 0;
+        }
+      });
+    } else {
+      standardTotal += Number(q.directMaxScore) || 0;
+    }
+  });
 
-export const PRESET_GRADING_SCALES: Record<string, GradingScale> = {
-  scale_9: {
-    type: 'numeric',
-    max_score: 9.0,
-    passing_threshold: 4.0,
-    precision: 1,
-    label: '9-Point Scale (Original)',
-  },
-  scale_20: {
-    type: 'numeric',
-    max_score: 20.0,
-    passing_threshold: 10.0,
-    precision: 1,
-    label: '20-Point Academic Scale (European / Iranian)',
-  },
-  scale_100: {
-    type: 'numeric',
-    max_score: 100.0,
-    passing_threshold: 60.0,
-    precision: 1,
-    label: '100-Point Standard Percentage Scale',
-  },
-  scale_4: {
-    type: 'numeric',
-    max_score: 4.0,
-    passing_threshold: 2.0,
-    precision: 2,
-    label: '4.0 GPA Scale',
-  },
-};
+  // If computed standard total is greater than 0, return it
+  if (standardTotal > 0) return standardTotal;
+  // Fallback to totalMaxScore if positive, else default 1 to prevent division by zero
+  return Number(assignment?.totalMaxScore) > 0 ? Number(assignment.totalMaxScore) : 1;
+}
 
 /**
- * Normalizes any persisted JSON grading scale (including legacy migration 00001 format)
- * into a valid, strongly-typed GradingScale instance.
+ * Calculates a student's score on a single assignment using the proportional formula:
+ * Score = ((standardEarned + bonusEarned) / standardDenominator) * targetScale
+ *
+ * Exact floating-point math is preserved, and displayScore is rounded up to 2 decimal places.
+ * Uncapped bonus points allow exactScore and displayScore to exceed targetScale.
  */
-export function normalizeGradingScale(rawScale: any): GradingScale {
-  if (!rawScale || typeof rawScale !== 'object') {
-    return DEFAULT_GRADING_SCALE;
-  }
+export function calculateStudentAssignmentScore(
+  assignment: Assignment,
+  scores?: StudentScoreMap
+): StudentAssignmentCalculation {
+  let standardEarned = 0;
+  let bonusEarned = 0;
 
-  const max_score = Number(rawScale.max_score) > 0 ? Number(rawScale.max_score) : 9.0;
-  const passing_threshold = Number(rawScale.passing_threshold ?? rawScale.min_pass ?? (max_score * 0.4444));
-  const precision = Number.isInteger(rawScale.precision) && rawScale.precision >= 0 ? rawScale.precision : (max_score <= 10 ? 1 : 1);
-  const type = rawScale.type === 'letter' || rawScale.type === 'points' ? rawScale.type : 'numeric';
-  const label = rawScale.label || `${max_score}-Point Scale`;
+  const questions = Array.isArray(assignment?.questions) ? assignment.questions : [];
+  questions.forEach(q => {
+    if (Array.isArray(q.subQuestions) && q.subQuestions.length > 0) {
+      q.subQuestions.forEach(sq => {
+        const val = scores?.[`${q.id}_${sq.id}`];
+        if (val !== undefined && val !== null && Number.isFinite(Number(val))) {
+          const numVal = Number(val);
+          if (q.isBonus || sq.isBonus) {
+            bonusEarned += numVal;
+          } else {
+            standardEarned += numVal;
+          }
+        }
+      });
+    } else {
+      const val = scores?.[q.id];
+      if (val !== undefined && val !== null && Number.isFinite(Number(val))) {
+        const numVal = Number(val);
+        if (q.isBonus) {
+          bonusEarned += numVal;
+        } else {
+          standardEarned += numVal;
+        }
+      }
+    }
+  });
+
+  const totalEarned = standardEarned + bonusEarned;
+  const standardDenominator = calculateAssignmentDenominator(assignment);
+  const targetScale = Number.isFinite(Number(assignment?.targetScale)) && Number(assignment.targetScale) > 0
+    ? Number(assignment.targetScale)
+    : 1.0;
+
+  // Exact floating-point calculation without artificial clamping
+  const exactScore = (totalEarned / standardDenominator) * targetScale;
+  const displayScore = roundUpToTwoDecimals(exactScore);
+  const percentage = standardDenominator > 0 ? (totalEarned / standardDenominator) * 100 : 0;
+  const isOverflow = exactScore > targetScale;
 
   return {
-    type,
-    max_score,
-    passing_threshold: Math.round(passing_threshold * 100) / 100,
-    precision,
-    label,
-    letter_cutoffs: Array.isArray(rawScale.letter_cutoffs) ? rawScale.letter_cutoffs : undefined,
+    standardEarned,
+    bonusEarned,
+    totalEarned,
+    standardDenominator,
+    targetScale,
+    exactScore,
+    displayScore,
+    percentage,
+    isOverflow,
   };
 }
 
 /**
- * Calculates grade details, continuous scaled value, qualitative label, badge styling,
- * and passing status for any given percentage under the active course GradingScale.
+ * Calculates the complete semester summary for all students across all assignments.
+ *
+ * Solid Score Semantic:
+ * - Each assignment contributes its solid score: exactScore_i (scaled to targetScale_i, e.g. 1.0 or 3.0).
+ * - Total assignment solid score capacity assigned so far: totalAssignmentTargetScore = sum(targetScale_i).
+ * - Sum of student's earned solid scores: sumEarnedScores = sum(exactScore_i).
+ * - By default (scaleMode = 'cumulative'):
+ *     exactSemesterTotal = sumEarnedScores (direct cumulative solid score sum).
+ *     Scores accumulate cumulatively towards semesterScale as assignments are completed across the term.
+ *     Final Total = roundUpToTwoDecimals(sum(earnedAssignmentScore_i)).
+ * - If scaleMode === 'proportional':
+ *     exactSemesterTotal = (sumEarnedScores / totalAssignmentTargetScore) * semesterScale.
+ * - If weightMode === 'weightPercent' (and weightSum > 0):
+ *     exactSemesterTotal = (weightedRatioSum / weightSum) * semesterScale.
+ * - Display semester total: displaySemesterTotal = roundUpToTwoDecimals(exactSemesterTotal).
+ * - Fully uncapped: students with bonus points legitimately exceed target scales.
  */
-export function calculateNumericGrade(
-  percentage: number,
-  scale: GradingScale = DEFAULT_GRADING_SCALE
-): NumericGrade {
-  const activeScale = normalizeGradingScale(scale);
-  const clampedPct = Math.max(0, Math.min(100, percentage));
-  const precision = activeScale.precision ?? 1;
-  const factor = Math.pow(10, precision);
+export function calculateSemesterSummary(params: {
+  assignments: Assignment[];
+  students: User[];
+  grades: Record<string, StudentAssignmentGrade>;
+  semesterScale?: number;
+  weightMode?: 'equal' | 'weightPercent';
+  scaleMode?: 'cumulative' | 'proportional';
+}): SemesterStudentSummary[] {
+  const {
+    assignments,
+    students,
+    grades,
+    semesterScale,
+    weightMode = 'equal',
+    scaleMode = 'cumulative',
+  } = params;
 
-  const scaled = (clampedPct / 100) * activeScale.max_score;
-  const scaledValue = Math.round(scaled * factor) / factor;
-  const isPassing = scaled >= activeScale.passing_threshold;
+  if (!Array.isArray(students) || students.length === 0) return [];
 
-  // Backwards compatibility for original 9-point scale
-  if (activeScale.max_score === 9) {
-    let gradeNumber = 1;
-    let label = 'Minimal';
-    let colorClass = 'text-rose-400';
-    let badgeBg = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+  // Total solid score capacity across all assignments (e.g. HW1: 1.0 + HW2: 1.0 + Q1: 3.0 = 5.0)
+  const totalAssignmentTargetScore = assignments.reduce(
+    (acc, asg) => acc + (Number.isFinite(Number(asg?.targetScale)) && Number(asg.targetScale) > 0 ? Number(asg.targetScale) : 1.0),
+    0
+  );
 
-    if (clampedPct >= 90) {
-      gradeNumber = 9;
-      label = 'Mastery / Distinction';
-      colorClass = 'text-[#3B82F6]';
-      badgeBg = 'bg-[#3B82F6]/10 text-[#3B82F6] border-[#3B82F6]/20';
-    } else if (clampedPct >= 80) {
-      gradeNumber = 8;
-      label = 'Excellent';
-      colorClass = 'text-emerald-400';
-      badgeBg = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-    } else if (clampedPct >= 70) {
-      gradeNumber = 7;
-      label = 'Proficient';
-      colorClass = 'text-teal-400';
-      badgeBg = 'bg-teal-500/10 text-teal-400 border-teal-500/20';
-    } else if (clampedPct >= 60) {
-      gradeNumber = 6;
-      label = 'Good';
-      colorClass = 'text-sky-400';
-      badgeBg = 'bg-sky-500/10 text-sky-400 border-sky-500/20';
-    } else if (clampedPct >= 50) {
-      gradeNumber = 5;
-      label = 'Satisfactory';
-      colorClass = 'text-amber-400';
-      badgeBg = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-    } else if (clampedPct >= 40) {
-      gradeNumber = 4;
-      label = 'Passing';
-      colorClass = 'text-orange-400';
-      badgeBg = 'bg-orange-500/10 text-orange-400 border-orange-500/20';
-    } else if (clampedPct >= 30) {
-      gradeNumber = 3;
-      label = 'Marginal';
-      colorClass = 'text-rose-300';
-      badgeBg = 'bg-rose-500/10 text-rose-300 border-rose-500/20';
-    } else if (clampedPct >= 20) {
-      gradeNumber = 2;
-      label = 'Basic';
-      colorClass = 'text-rose-400';
-      badgeBg = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+  // Semester target scale (from user input or default to totalAssignmentTargetScore or 5.0)
+  const targetScaleNum = Number.isFinite(Number(semesterScale)) && Number(semesterScale)! > 0
+    ? Number(semesterScale)
+    : (totalAssignmentTargetScore > 0 ? totalAssignmentTargetScore : 5.0);
+
+  return students.map(student => {
+    const assignmentScores: Record<string, StudentAssignmentCalculation> = {};
+    let sumEarnedScores = 0;
+    let weightedRatioSum = 0;
+    let weightSum = 0;
+
+    assignments.forEach(asg => {
+      const g = grades[`${student.id}_${asg.id}`];
+      const calc = calculateStudentAssignmentScore(asg, g?.scores);
+      assignmentScores[asg.id] = calc;
+      sumEarnedScores += calc.exactScore;
+
+      if (weightMode === 'weightPercent' && asg.weightPercent > 0) {
+        const normalizedRatio = calc.targetScale > 0 ? calc.exactScore / calc.targetScale : 0;
+        weightedRatioSum += normalizedRatio * asg.weightPercent;
+        weightSum += asg.weightPercent;
+      }
+    });
+
+    let exactSemesterTotal = sumEarnedScores;
+    if (weightMode === 'weightPercent' && weightSum > 0) {
+      const overallRatio = weightedRatioSum / weightSum;
+      exactSemesterTotal = overallRatio * targetScaleNum;
+    } else if (scaleMode === 'proportional') {
+      // Proportional scaling explicitly requested
+      if (totalAssignmentTargetScore > 0) {
+        exactSemesterTotal = (sumEarnedScores / totalAssignmentTargetScore) * targetScaleNum;
+      } else {
+        exactSemesterTotal = sumEarnedScores;
+      }
     } else {
-      gradeNumber = 1;
-      label = 'Minimal';
-      colorClass = 'text-rose-500';
-      badgeBg = 'bg-rose-500/10 text-rose-500 border-rose-500/20';
+      // Cumulative solid score accumulation (Default):
+      // Each assignment directly contributes its solid score towards the semester target scale.
+      // Final Total = sum(earnedAssignmentScore_i)
+      exactSemesterTotal = sumEarnedScores;
     }
 
-    return {
-      gradeNumber,
-      scaledValue,
-      displayGrade: `Grade ${gradeNumber}`,
-      label,
-      colorClass,
-      badgeBg,
-      isPassing,
-      maxScore: 9.0,
-    };
-  }
+    const displaySemesterTotal = roundUpToTwoDecimals(exactSemesterTotal);
+    const isSemesterOverflow = exactSemesterTotal > targetScaleNum;
 
-  // Generalized multi-scale evaluation for customized courses (20-point, 100-point, 4.0, custom)
-  const passPercent = (activeScale.passing_threshold / activeScale.max_score) * 100;
+    return {
+      studentId: student.id,
+      studentName: student.full_name || 'Unknown',
+      studentNumber: student.studentId || '',
+      section: student.section,
+      assignmentScores,
+      exactSemesterTotal,
+      displaySemesterTotal,
+      semesterScale: targetScaleNum,
+      isSemesterOverflow,
+    };
+  });
+}
+
+/**
+ * Backward compatibility:
+ * Numeric Grading System (Scale of 9 / percentage breakdown)
+ */
+export interface NumericGrade {
+  gradeNumber: number; // Integer grade from 1 to 9 (9 is top)
+  scaledValue: number; // Continuous score out of 9.0 (e.g. 8.6 / 9.0)
+  displayGrade: string; // e.g. "Grade 9" or "9"
+  label: string; // e.g. "Distinction / Mastery"
+  colorClass: string;
+  badgeBg: string;
+}
+
+export function calculateNumericGrade(percentage: number): NumericGrade {
+  const clampedPct = Math.max(0, Math.min(100, percentage));
+  const scaled = (clampedPct / 100) * 9;
+  const scaledValue = Math.round(scaled * 10) / 10;
+
+  let gradeNumber = 1;
   let label = 'Minimal';
   let colorClass = 'text-rose-400';
   let badgeBg = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
 
   if (clampedPct >= 90) {
+    gradeNumber = 9;
     label = 'Mastery / Distinction';
     colorClass = 'text-[#3B82F6]';
     badgeBg = 'bg-[#3B82F6]/10 text-[#3B82F6] border-[#3B82F6]/20';
   } else if (clampedPct >= 80) {
+    gradeNumber = 8;
     label = 'Excellent';
     colorClass = 'text-emerald-400';
     badgeBg = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
   } else if (clampedPct >= 70) {
+    gradeNumber = 7;
     label = 'Proficient';
     colorClass = 'text-teal-400';
     badgeBg = 'bg-teal-500/10 text-teal-400 border-teal-500/20';
   } else if (clampedPct >= 60) {
+    gradeNumber = 6;
     label = 'Good';
     colorClass = 'text-sky-400';
     badgeBg = 'bg-sky-500/10 text-sky-400 border-sky-500/20';
   } else if (clampedPct >= 50) {
+    gradeNumber = 5;
     label = 'Satisfactory';
     colorClass = 'text-amber-400';
     badgeBg = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
-  } else if (clampedPct >= passPercent) {
+  } else if (clampedPct >= 40) {
+    gradeNumber = 4;
     label = 'Passing';
     colorClass = 'text-orange-400';
     badgeBg = 'bg-orange-500/10 text-orange-400 border-orange-500/20';
-  } else if (clampedPct >= passPercent * 0.75) {
+  } else if (clampedPct >= 30) {
+    gradeNumber = 3;
     label = 'Marginal';
     colorClass = 'text-rose-300';
     badgeBg = 'bg-rose-500/10 text-rose-300 border-rose-500/20';
-  } else if (clampedPct >= passPercent * 0.5) {
+  } else if (clampedPct >= 20) {
+    gradeNumber = 2;
     label = 'Basic';
     colorClass = 'text-rose-400';
     badgeBg = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
   } else {
+    gradeNumber = 1;
     label = 'Minimal';
     colorClass = 'text-rose-500';
     badgeBg = 'bg-rose-500/10 text-rose-500 border-rose-500/20';
   }
 
-  const gradeNumber = Math.round(scaledValue);
-  const displayGrade = `${scaledValue.toFixed(precision)} / ${activeScale.max_score}`;
-
   return {
     gradeNumber,
     scaledValue,
-    displayGrade,
+    displayGrade: `Grade ${gradeNumber}`,
     label,
     colorClass,
     badgeBg,
-    isPassing,
-    maxScore: activeScale.max_score,
   };
 }
 
-/**
- * Scales a raw points score out of totalMaxScore into the course's active grading scale.
- */
-export function scaleRawScore(
-  rawScore: number,
-  totalMaxScore: number,
-  scale: GradingScale = DEFAULT_GRADING_SCALE
-): number {
-  const activeScale = normalizeGradingScale(scale);
-  if (totalMaxScore <= 0) return Math.min(activeScale.max_score, rawScore);
-  const precision = activeScale.precision ?? 1;
-  const factor = Math.pow(10, precision);
-  const rawScaled = (rawScore / totalMaxScore) * activeScale.max_score;
-  return Math.min(activeScale.max_score, Math.round(rawScaled * factor) / factor);
-}
-
-export function getNumericGradeScaleBreakdown(scale: GradingScale = DEFAULT_GRADING_SCALE) {
-  const activeScale = normalizeGradingScale(scale);
-  if (activeScale.max_score === 9) {
-    return [
-      { grade: 9, range: '90 – 100%', label: 'Mastery / Distinction', desc: 'Highest standard attainment' },
-      { grade: 8, range: '80 – 89%', label: 'Excellent', desc: 'Comprehensive domain understanding' },
-      { grade: 7, range: '70 – 79%', label: 'Proficient', desc: 'Solid analytical comprehension' },
-      { grade: 6, range: '60 – 69%', label: 'Good', desc: 'Competent execution on core concepts' },
-      { grade: 5, range: '50 – 59%', label: 'Satisfactory', desc: 'Satisfactory baseline attainment' },
-      { grade: 4, range: '40 – 49%', label: 'Passing', desc: 'Minimum passing criteria' },
-      { grade: 3, range: '30 – 39%', label: 'Marginal', desc: 'Substantial concept remediation needed' },
-      { grade: 2, range: '20 – 29%', label: 'Basic', desc: 'Significant deficits' },
-      { grade: 1, range: '< 20%', label: 'Minimal', desc: 'Incomplete submissions' },
-    ];
-  }
-
-  const m = activeScale.max_score;
-  const p = activeScale.precision ?? 1;
-  const pass = activeScale.passing_threshold;
-
+export function getNumericGradeScaleBreakdown() {
   return [
-    { grade: m, range: `90 – 100% (${(m * 0.9).toFixed(p)} – ${m})`, label: 'Mastery / Distinction', desc: 'Highest standard attainment' },
-    { grade: Math.round(m * 0.8), range: `80 – 89% (${(m * 0.8).toFixed(p)} – ${(m * 0.89).toFixed(p)})`, label: 'Excellent', desc: 'Comprehensive domain understanding' },
-    { grade: Math.round(m * 0.7), range: `70 – 79% (${(m * 0.7).toFixed(p)} – ${(m * 0.79).toFixed(p)})`, label: 'Proficient', desc: 'Solid analytical comprehension' },
-    { grade: Math.round(m * 0.6), range: `60 – 69% (${(m * 0.6).toFixed(p)} – ${(m * 0.69).toFixed(p)})`, label: 'Good', desc: 'Competent execution on core concepts' },
-    { grade: pass, range: `Passing threshold: ≥ ${pass.toFixed(p)} pts`, label: 'Passing', desc: `Official passing threshold (≥ ${(pass / m * 100).toFixed(0)}%)` },
-    { grade: 0, range: `< ${pass.toFixed(p)} pts`, label: 'At-Risk / Needs Remediation', desc: 'Below passing threshold' },
+    { grade: 9, range: '90 – 100%', label: 'Mastery / Distinction', desc: 'Highest standard attainment' },
+    { grade: 8, range: '80 – 89%', label: 'Excellent', desc: 'Comprehensive domain understanding' },
+    { grade: 7, range: '70 – 79%', label: 'Proficient', desc: 'Solid analytical comprehension' },
+    { grade: 6, range: '60 – 69%', label: 'Good', desc: 'Competent execution on core concepts' },
+    { grade: 5, range: '50 – 59%', label: 'Satisfactory', desc: 'Satisfactory baseline attainment' },
+    { grade: 4, range: '40 – 49%', label: 'Passing', desc: 'Minimum passing criteria' },
+    { grade: 3, range: '30 – 39%', label: 'Marginal', desc: 'Substantial concept remediation needed' },
+    { grade: 2, range: '20 – 29%', label: 'Basic', desc: 'Significant deficits' },
+    { grade: 1, range: '< 20%', label: 'Minimal', desc: 'Incomplete submissions' },
   ];
 }
-

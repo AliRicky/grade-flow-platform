@@ -39,8 +39,10 @@
 - **Airtight Zero-Trust RLS**: PostgREST security policies prevent cross-tenant data leaks. Students can only read their own scores; only authorized teaching staff can update evaluation records.
 
 ### 6. Official Reporting & Dispatch Engine
-- **One-Click PDF Master Gradebook**: Export official, camera-ready PDF matrices complete with institutional headers, statistics summaries, and instructor signoff blocks.
-- **Automated Overdue Reminders**: Batch-dispatch targeted email reminders to students with missing submissions ahead of deadlines.
+- **End-of-Semester Summary Matrix (10-Table Architecture)**: Live aggregation of raw question scores, dynamic assignment target scales, uncapped bonus point overflows, and normalized semester totals with custom target scales (e.g., 5.0, 20.0).
+- **Proportional Normalized Grading Engine**: Decoupled calculation engine supporting both cumulative solid score accumulation and proportional normalized grading with ceiling rounding to 2 decimal places.
+- **One-Click CSV & PDF Exports**: Download official semester summaries, master gradebooks, or individual assessment sheets ready for academic registrar archiving.
+- **Automated Overdue Reminders**: Batch-dispatch targeted reminders to students with missing submissions ahead of deadlines.
 
 ---
 
@@ -53,7 +55,7 @@ grade-flow-platform/
 ├── public/                    # Static SVG vector assets & icons
 ├── src/
 │   ├── components/
-│   │   ├── admin/             # GradebookMatrix, AssignmentBuilder, Delegation, Overdue, UserManagement
+│   │   ├── admin/             # GradebookMatrix, SemesterReportView, AssignmentBuilder, Delegation, Overdue, UserManagement
 │   │   ├── auth/              # AuthModal & role switching
 │   │   ├── common/            # ErrorBoundary, OfflineBanner
 │   │   ├── layout/            # Navbar, Header, Theme toggles
@@ -61,6 +63,7 @@ grade-flow-platform/
 │   │   ├── notifications/     # NotificationDrawer & browser push
 │   │   └── student/           # StudentGradesView, WhatIfCalculator, DeadlinesView, RegradeModal
 │   ├── context/               # AuthContext, CourseContext, ThemeContext
+│   ├── data/                  # Anonymized forensic evaluation datasets & fixtures
 │   ├── hooks/                 # useIsMobile, responsive hooks
 │   ├── services/              # Supabase Client singleton
 │   ├── types/                 # Comprehensive TypeScript domain types
@@ -69,7 +72,9 @@ grade-flow-platform/
 │   └── main.tsx               # React 19 bootstrap
 ├── supabase/
 │   ├── migrations/
-│   │   └── 00001_generalized_grade_flow.sql  # Complete schema, RLS, triggers & views
+│   │   ├── 00001_generalized_grade_flow.sql         # Complete schema, RLS, triggers & views
+│   │   ├── 00002_custom_grading_scale.sql           # Dynamic course grading scale support
+│   │   └── 00003_student_grades_roster_view.sql     # Unified student grades & roster view
 │   └── seed.sql               # Ready-to-run demo course fixtures
 ├── .env.example               # Generic configuration blueprint
 ├── package.json               # Modern dependency manifest

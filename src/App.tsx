@@ -6,7 +6,7 @@
 import React, { useState, Suspense, lazy } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { CourseProvider, useCourse } from './context/CourseContext';
+import { CourseProvider } from './context/CourseContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Navbar } from './components/layout/Navbar';
 import { OfflineBanner } from './components/common/OfflineBanner';
@@ -20,6 +20,7 @@ import { MobileMoreSheet } from './components/mobile/MobileMoreSheet';
 // Code-split Lazy-loaded Admin Components
 const DashboardOverview = lazy(() => import('./components/admin/DashboardOverview').then(m => ({ default: m.DashboardOverview })));
 const GradebookMatrix = lazy(() => import('./components/admin/GradebookMatrix').then(m => ({ default: m.GradebookMatrix })));
+const SemesterReportView = lazy(() => import('./components/admin/SemesterReportView').then(m => ({ default: m.SemesterReportView })));
 const MobileGradebook = lazy(() => import('./components/mobile/MobileGradebook').then(m => ({ default: m.MobileGradebook })));
 const AssignmentBuilder = lazy(() => import('./components/admin/AssignmentBuilder').then(m => ({ default: m.AssignmentBuilder })));
 const OverdueNotifierModal = lazy(() => import('./components/admin/OverdueNotifierModal').then(m => ({ default: m.OverdueNotifierModal })));
@@ -42,13 +43,10 @@ const SuspenseLoader: React.FC = () => (
 );
 
 import { Assignment } from './types';
-import { DEFAULT_GRADING_SCALE } from './utils/grading';
 import { Shield, GraduationCap, ArrowLeftRight, Send, LogIn, Layers } from 'lucide-react';
 
 const MainLayout: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
-  const { gradingScale: rawScale } = useCourse();
-  const gradingScale = rawScale || DEFAULT_GRADING_SCALE;
   const isMobile = useIsMobile();
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
 
@@ -85,7 +83,7 @@ const MainLayout: React.FC = () => {
   });
 
   // Keep the active view valid for the current role (and reset after sign-out / switch)
-  const adminViews = ['overview', 'gradebook', 'builder', 'delegation', 'overdue', 'user-management'];
+  const adminViews = ['overview', 'gradebook', 'semester-report', 'builder', 'delegation', 'overdue', 'user-management'];
   const studentViews = ['student-grades', 'student-deadlines', 'student-whatif', 'student-regrades'];
   React.useEffect(() => {
     if (isAdmin && !adminViews.includes(activeView)) setActiveView('overview');
@@ -229,6 +227,10 @@ const MainLayout: React.FC = () => {
               )
             )}
 
+            {activeView === 'semester-report' && (
+              <SemesterReportView />
+            )}
+
             {activeView === 'builder' && (
               <AssignmentBuilder
                 key={builderAssignmentId ?? 'default'}
@@ -298,7 +300,7 @@ const MainLayout: React.FC = () => {
       <footer className="mt-auto border-t border-zinc-200 dark:border-zinc-800/80 py-5 px-4 sm:px-6 text-xs text-zinc-500 dark:text-zinc-400 no-print hidden md:block">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>GradeFlow</span>
-          <span className="font-mono text-[11px]">{gradingScale.label || `Numeric ${gradingScale.max_score}-point grading scale`}</span>
+          <span className="font-mono text-[11px]">Proportional Normalized Grading Engine</span>
         </div>
       </footer>
 

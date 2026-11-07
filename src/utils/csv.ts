@@ -1,10 +1,14 @@
 /**
  * CSV Export & Import Handler matching university course grading sheets.
- * Standardized on 100% English headers and 9-point numeric grading scale.
+ * Standardized on 100% English headers and normalized grading scale.
  */
 
-import { Assignment, GradingScale, StudentAssignmentGrade, User } from '../types';
-import { DEFAULT_GRADING_SCALE, calculateNumericGrade, normalizeGradingScale } from './grading';
+import { Assignment, StudentAssignmentGrade, User } from '../types';
+import {
+  calculateStudentAssignmentScore,
+  calculateSemesterSummary,
+  roundUpToTwoDecimals
+} from './grading';
 
 export interface GradeRowData {
   student: User;
@@ -19,10 +23,8 @@ export function generateCSVContent(
   assignment: Assignment,
   students: User[],
   gradesMap: Record<string, StudentAssignmentGrade>,
-  _language: string = 'en',
-  scale: GradingScale = DEFAULT_GRADING_SCALE
+  _language: string = 'en'
 ): string {
-  const activeScale = normalizeGradingScale(scale);
   // Collect all score columns from assignment questions and sub-questions
   interface ColumnDef {
     key: string;
@@ -54,6 +56,9 @@ export function generateCSVContent(
     }
   });
 
+  const asgScale = assignment.targetScale !== undefined ? assignment.targetScale : 1.0;
+  const scaledHeader = `Final Scaled (/${asgScale.toFixed(1)})`;
+
   const headers = [
     'First Name',
     'Last Name',
@@ -61,8 +66,8 @@ export function generateCSVContent(
     ...columns.map(c => csvQuote(c.label)),
     'Bonus Points',
     'Raw Total',
-    `Final Scaled (/${activeScale.max_score.toFixed(1)})`,
-    activeScale.max_score === 9 ? 'Numeric Grade (Scale 9)' : `Numeric Grade (Scale ${activeScale.max_score})`
+    scaledHeader,
+    'Percentage'
   ];
 
   const rows: string[] = [];
@@ -104,18 +109,15 @@ export function generateCSVContent(
       return '';
     });
 
-    const combinedScore = totalScore + bonusScore;
-    const finalOutOf9 = assignment.totalMaxScore > 0
-      ? Math.min(activeScale.max_score, (combinedScore / assignment.totalMaxScore) * activeScale.max_score)
-      : Math.min(activeScale.max_score, combinedScore);
-
-    const pct = assignment.totalMaxScore > 0 ? (combinedScore / assignment.totalMaxScore) * 100 : 0;
-    const numericGrade = calculateNumericGrade(pct, activeScale);
+    const calc = calculateStudentAssignmentScore(assignment, studentGrade?.scores);
+    const combinedScore = calc.totalEarned;
+    const finalScore = calc.displayScore;
+    const pct = calc.percentage;
 
     if (colValues.some(v => v !== '')) {
       gradedCount++;
       overallTotalSum += combinedScore;
-      overallFinalSum += finalOutOf9;
+      overallFinalSum += calc.exactScore;
     }
 
     const row = [
@@ -125,8 +127,8 @@ export function generateCSVContent(
       ...colValues,
       bonusScore > 0 ? bonusScore.toString() : '0',
       combinedScore.toFixed(2),
-      finalOutOf9.toFixed(2),
-      `"Grade ${numericGrade.gradeNumber}"`
+      finalScore.toFixed(2),
+      `"${pct.toFixed(0)}%"`
     ];
 
     rows.push(row.join(','));
@@ -166,11 +168,8 @@ export function generateMasterCSVContent(
   assignments: Assignment[],
   students: User[],
   gradesMap: Record<string, StudentAssignmentGrade>,
-  _language: string = 'en',
-  scale: GradingScale = DEFAULT_GRADING_SCALE
+  _language: string = 'en'
 ): string {
-  const activeScale = normalizeGradingScale(scale);
-  const m = activeScale.max_score;
   const hwList = assignments.filter(a => a.type === 'homework');
   const quizList = assignments.filter(a => a.type === 'quiz');
 
@@ -179,11 +178,11 @@ export function generateMasterCSVContent(
     'Last Name',
     'Student ID',
     'Section',
-    ...hwList.map(h => `${h.shortCode} (/${m})`),
-    ...quizList.map(q => `${q.shortCode} (/${m})`),
+    ...hwList.map(h => `${h.shortCode} (/${(h.targetScale ?? 1.0).toFixed(1)})`),
+    ...quizList.map(q => `${q.shortCode} (/${q.targetScale ?? 1.0})`),
     'Course Total (%)',
-    `Final Scaled (/${m.toFixed(1)})`,
-    m === 9 ? 'Numeric Grade (Scale 9)' : `Numeric Grade (Scale ${m})`
+    'Final Scaled (/5.0)',
+    'Performance Status'
   ];
 
   const rows: string[] = [];
@@ -210,81 +209,44 @@ export function generateMasterCSVContent(
     const hwScores = hwList.map(h => {
       const g = gradesMap[`${student.id}_${h.id}`];
       if (!g || !g.scores || Object.keys(g.scores).length === 0) return '';
-      let earned = 0;
-      let bonus = 0;
-      (Array.isArray(h.questions) ? h.questions : []).forEach(q => {
-        if (q.subQuestions && q.subQuestions.length > 0) {
-          q.subQuestions.forEach(sq => {
-            const v = g.scores[`${q.id}_${sq.id}`];
-            if (v !== undefined && v !== null) {
-              if (q.isBonus) bonus += v;
-              else earned += v;
-            }
-          });
-        } else {
-          const v = g.scores[q.id];
-          if (v !== undefined && v !== null) {
-            if (q.isBonus) bonus += v;
-            else earned += v;
-          }
-        }
-      });
-
-      const raw = earned + bonus;
-      const scaled = h.totalMaxScore > 0 ? Math.min(m, (raw / h.totalMaxScore) * m) : Math.min(m, raw);
-      hwSums[h.id] += scaled;
+      const calc = calculateStudentAssignmentScore(h, g.scores);
+      hwSums[h.id] += calc.exactScore;
       hwCounts[h.id] += 1;
 
-      studentWeightedScoreSum += (scaled / m) * h.weightPercent;
+      const ratio = calc.targetScale > 0 ? calc.exactScore / calc.targetScale : 0;
+      studentWeightedScoreSum += ratio * h.weightPercent;
       studentWeightSum += h.weightPercent;
 
-      return scaled.toFixed(2);
+      return calc.displayScore.toFixed(2);
     });
 
     const quizScores = quizList.map(q => {
       const g = gradesMap[`${student.id}_${q.id}`];
       if (!g || !g.scores || Object.keys(g.scores).length === 0) return '';
-      let earned = 0;
-      let bonus = 0;
-      (Array.isArray(q.questions) ? q.questions : []).forEach(ques => {
-        if (ques.subQuestions && ques.subQuestions.length > 0) {
-          ques.subQuestions.forEach(sq => {
-            const v = g.scores[`${ques.id}_${sq.id}`];
-            if (v !== undefined && v !== null) {
-              if (ques.isBonus) bonus += v;
-              else earned += v;
-            }
-          });
-        } else {
-          const v = g.scores[ques.id];
-          if (v !== undefined && v !== null) {
-            if (ques.isBonus) bonus += v;
-            else earned += v;
-          }
-        }
-      });
-
-      const raw = earned + bonus;
-      const scaled = q.totalMaxScore > 0 ? Math.min(m, (raw / q.totalMaxScore) * m) : Math.min(m, raw);
-      quizSums[q.id] += scaled;
+      const calc = calculateStudentAssignmentScore(q, g.scores);
+      quizSums[q.id] += calc.exactScore;
       quizCounts[q.id] += 1;
 
-      studentWeightedScoreSum += (scaled / m) * q.weightPercent;
+      const ratio = calc.targetScale > 0 ? calc.exactScore / calc.targetScale : 0;
+      studentWeightedScoreSum += ratio * q.weightPercent;
       studentWeightSum += q.weightPercent;
 
-      return scaled.toFixed(2);
+      return calc.displayScore.toFixed(2);
     });
 
     const courseTotalPct = studentWeightSum > 0 ? (studentWeightedScoreSum / studentWeightSum) * 100 : 0;
-    const finalScaledVal = Math.min(m, (courseTotalPct / 100) * m);
+    const finalScaled = (courseTotalPct / 100) * 5.0;
+    const performanceStatus =
+      courseTotalPct >= 90 ? 'Mastery' :
+      courseTotalPct >= 80 ? 'Distinction' :
+      courseTotalPct >= 70 ? 'Proficient' :
+      courseTotalPct >= 60 ? 'Satisfactory' :
+      courseTotalPct >= 50 ? 'Passing' : 'Remediation';
 
     if (studentWeightSum > 0) {
       classCourseTotalSum += courseTotalPct;
       studentsEvaluated += 1;
     }
-
-    const numericGrade = calculateNumericGrade(courseTotalPct, activeScale);
-    const displayGradeString = m === 9 ? `Grade ${numericGrade.gradeNumber}` : numericGrade.displayGrade;
 
     const row = [
       csvQuote(firstName),
@@ -294,8 +256,8 @@ export function generateMasterCSVContent(
       ...hwScores,
       ...quizScores,
       courseTotalPct.toFixed(2),
-      finalScaledVal.toFixed(2),
-      csvQuote(displayGradeString)
+      finalScaled.toFixed(2),
+      csvQuote(performanceStatus)
     ];
 
     rows.push(row.join(','));
@@ -313,9 +275,13 @@ export function generateMasterCSVContent(
   });
 
   const avgCourseTotal = studentsEvaluated > 0 ? (classCourseTotalSum / studentsEvaluated).toFixed(2) : '0.00';
-  const avgFinalScaled = (parseFloat(avgCourseTotal) / 100 * m).toFixed(2);
-  const avgNumericGrade = calculateNumericGrade(parseFloat(avgCourseTotal), activeScale);
-  const avgDisplayGradeString = m === 9 ? `Grade ${avgNumericGrade.gradeNumber}` : avgNumericGrade.displayGrade;
+  const avgFinalScaled = (parseFloat(avgCourseTotal) / 100 * 5.0).toFixed(2);
+  const avgStatus =
+    parseFloat(avgCourseTotal) >= 90 ? 'Mastery' :
+    parseFloat(avgCourseTotal) >= 80 ? 'Distinction' :
+    parseFloat(avgCourseTotal) >= 70 ? 'Proficient' :
+    parseFloat(avgCourseTotal) >= 60 ? 'Satisfactory' :
+    parseFloat(avgCourseTotal) >= 50 ? 'Passing' : 'Remediation';
 
   const summaryRow = [
     '"Class Mean"',
@@ -326,10 +292,53 @@ export function generateMasterCSVContent(
     ...quizAverages,
     avgCourseTotal,
     avgFinalScaled,
-    csvQuote(avgDisplayGradeString)
+    csvQuote(avgStatus)
   ];
 
   rows.push(summaryRow.join(','));
+
+  return rows.join('\n');
+}
+
+export function generateSemesterSummaryCSV(
+  assignments: Assignment[],
+  students: User[],
+  gradesMap: Record<string, StudentAssignmentGrade>,
+  options: { semesterScale?: number; weightMode?: 'equal' | 'weightPercent'; scaleMode?: 'cumulative' | 'proportional'; language?: 'en' | 'fa' } = {}
+): string {
+  const { semesterScale = 5.0, weightMode = 'equal', scaleMode = 'cumulative', language = 'en' } = options;
+  const summary = calculateSemesterSummary({
+    assignments,
+    students,
+    grades: gradesMap,
+    semesterScale,
+    weightMode,
+    scaleMode,
+  });
+
+  const isFa = language === 'fa';
+  const headers = isFa
+    ? ['"نام"', '"نام خانوادگی"', '"شماره دانشجویی"', ...assignments.map(a => `"${a.shortCode}"`), `"نمره نهایی ( ${semesterScale} نمره )"`]
+    : ['"First Name"', '"Last Name"', '"Student ID"', ...assignments.map(a => `"${a.shortCode}"`), `"Semester Total (Scale ${semesterScale})"`];
+
+  const rows = [headers.join(',')];
+
+  summary.forEach(s => {
+    const parts = s.studentName.split(' ');
+    const firstName = parts[0] || '';
+    const lastName = parts.slice(1).join(' ') || '';
+    const asgCols = assignments.map(a => {
+      const score = s.assignmentScores[a.id];
+      return score ? `"${score.displayScore.toFixed(2)}"` : '"0.00"';
+    });
+    rows.push([
+      csvQuote(firstName),
+      csvQuote(lastName),
+      csvQuote(s.studentNumber),
+      ...asgCols,
+      `"${s.displaySemesterTotal.toFixed(2)}"`,
+    ].join(','));
+  });
 
   return rows.join('\n');
 }

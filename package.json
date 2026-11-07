@@ -1,7 +1,7 @@
 {
   "name": "grade-flow-platform",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "description": "Turnkey academic grading and course operations platform with high-performance table virtualization, dynamic syllabus modeling, and multi-TA delegation",
   "scripts": {

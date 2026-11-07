@@ -3,8 +3,10 @@ export type Role = 'admin' | 'student';
 export interface User {
   id: string;
   full_name: string;
+  firstName?: string;
+  lastName?: string;
   role: Role;
-  studentId?: string; // e.g. STU1001 or 2026001
+  studentId?: string; // e.g. 40110293 or 4002019015
   username?: string;
   avatar?: string;
   section?: string; // e.g. "The Lead Teaching Assistant"
@@ -21,6 +23,7 @@ export interface SubQuestion {
   maxScore: number;
   description?: string;
   assignedTaId?: string;
+  isBonus?: boolean; // Bonus part
 }
 
 export interface Question {
@@ -45,6 +48,7 @@ export interface Assignment {
   releaseDate: string; // ISO string
   dueDate: string; // ISO string
   weightPercent: number; // e.g. 8% of total grade
+  targetScale?: number; // Target score scale (e.g. 1.0 or 3.0), defaults to 1.0
   status: AssignmentStatus;
   questions: Question[];
   totalMaxScore: number;
@@ -112,34 +116,33 @@ export interface CourseStats {
   pendingRegrades: number;
 }
 
-export type GradingScaleType = 'numeric' | 'letter' | 'points';
-
-export interface LetterCutoff {
-  letter: string;
-  min_percentage: number;
-  label?: string;
+export interface CourseConfig {
+  semesterScale: number; // e.g. 5.0, 6.0, 9.0, 10.0, 20.0 (default 5.0)
+  weightMode: 'equal' | 'weightPercent';
+  roundingRule: 'ceil2'; // ceiling to 2 decimals
+  scaleMode?: 'cumulative' | 'proportional';
 }
 
-export interface GradingScale {
-  type: GradingScaleType;
-  max_score: number; // e.g. 9, 20, 100, 4.0
-  passing_threshold: number; // e.g. 4 for 9, 10 for 20, 60 for 100
-  precision?: number; // decimal places, defaults to 1 or 2
-  label?: string;
-  letter_cutoffs?: LetterCutoff[];
+export interface StudentAssignmentCalculation {
+  standardEarned: number;
+  bonusEarned: number;
+  totalEarned: number;
+  standardDenominator: number;
+  targetScale: number;
+  exactScore: number;
+  displayScore: number;
+  percentage: number;
+  isOverflow: boolean;
 }
 
-export interface Course {
-  id: string;
-  code: string;
-  title: string;
-  term?: string;
-  academic_year?: string;
-  grading_scale: GradingScale;
-  config?: {
-    allow_student_whatif?: boolean;
-    allow_regrade_appeals?: boolean;
-    regrade_window_days?: number;
-    [key: string]: any;
-  };
+export interface SemesterStudentSummary {
+  studentId: string;
+  studentName: string;
+  studentNumber: string;
+  section?: string;
+  assignmentScores: Record<string, StudentAssignmentCalculation>;
+  exactSemesterTotal: number;
+  displaySemesterTotal: number;
+  semesterScale: number;
+  isSemesterOverflow: boolean;
 }

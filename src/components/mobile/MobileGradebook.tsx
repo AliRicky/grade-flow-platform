@@ -14,7 +14,7 @@ import {
 import { useCourse } from '../../context/CourseContext';
 import { useAuth } from '../../context/AuthContext';
 import { Assignment, User } from '../../types';
-import { calculateNumericGrade, DEFAULT_GRADING_SCALE } from '../../utils/grading';
+import { calculateStudentAssignmentScore } from '../../utils/grading';
 import { MobileGradingDrawer } from './MobileGradingDrawer';
 
 interface MobileGradebookProps {
@@ -30,8 +30,7 @@ export const MobileGradebook: React.FC<MobileGradebookProps> = ({
   onOpenExportHub,
   onOpenGoogleSheetsModal,
 }) => {
-  const { assignments, grades, gradingScale: rawScale } = useCourse();
-  const gradingScale = rawScale || DEFAULT_GRADING_SCALE;
+  const { assignments, grades } = useCourse();
   const { users } = useAuth();
 
   const students = useMemo(() => users.filter(u => u.role === 'student'), [users]);
@@ -76,48 +75,41 @@ export const MobileGradebook: React.FC<MobileGradebookProps> = ({
   const studentMetrics = useMemo(() => {
     if (!currentAssignment) return new Map();
 
+    const asgScale = currentAssignment.targetScale ?? 1.0;
     const map = new Map<string, {
       rawTotal: number;
       scaledFinal: number;
+      percentage: number;
       gradedParts: number;
       isFullyGraded: boolean;
       hasAnyGrade: boolean;
-      numericGrade: ReturnType<typeof calculateNumericGrade>;
     }>();
 
     students.forEach(s => {
       const g = grades[`${s.id}_${currentAssignment.id}`];
-      let rawTotal = 0;
-      let rawBonus = 0;
       let gradedParts = 0;
 
       questionKeys.forEach(qk => {
         const val = g?.scores?.[qk.key];
         if (val !== undefined && val !== null) {
           gradedParts++;
-          if (qk.isBonus) rawBonus += val;
-          else rawTotal += val;
         }
       });
 
-      const rawSum = rawTotal + rawBonus;
-      const scaled = currentAssignment.totalMaxScore > 0
-        ? Math.min(gradingScale.max_score, (rawSum / currentAssignment.totalMaxScore) * gradingScale.max_score)
-        : Math.min(gradingScale.max_score, rawSum);
-      const pct = gradingScale.max_score > 0 ? (scaled / gradingScale.max_score) * 100 : 0;
+      const calc = calculateStudentAssignmentScore(currentAssignment, g?.scores);
 
       map.set(s.id, {
-        rawTotal: rawSum,
-        scaledFinal: scaled,
+        rawTotal: calc.totalEarned,
+        scaledFinal: calc.displayScore,
+        percentage: calc.percentage,
         gradedParts,
         isFullyGraded: questionKeys.length > 0 && gradedParts >= questionKeys.filter(k => !k.isBonus).length,
         hasAnyGrade: gradedParts > 0,
-        numericGrade: calculateNumericGrade(pct, gradingScale),
       });
     });
 
     return map;
-  }, [students, grades, currentAssignment, questionKeys, gradingScale]);
+  }, [students, grades, currentAssignment, questionKeys]);
 
   // Filtered Students
   const filteredStudents = useMemo(() => {
@@ -205,14 +197,14 @@ export const MobileGradebook: React.FC<MobileGradebookProps> = ({
             <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500 dark:text-zinc-400 font-mono">
               <span>{questionKeys.length} Questions</span>
               <span>·</span>
-              <span>Max {currentAssignment.totalMaxScore} pts (Scale {gradingScale.max_score.toFixed(gradingScale.precision ?? 1)})</span>
+              <span>Max {currentAssignment.totalMaxScore} pts (Scale {(currentAssignment.targetScale ?? 1.0).toFixed(1)})</span>
             </div>
           </div>
 
           {/* Average Badge */}
           <div className="text-right shrink-0">
             <div className="text-sm font-mono font-bold text-[#3B82F6]">
-              {classStats.avgScaled} <span className="text-[10px] text-zinc-400">/ {gradingScale.max_score.toFixed(gradingScale.precision ?? 1)}</span>
+              {classStats.avgScaled} <span className="text-[10px] text-zinc-400">/ {(currentAssignment.targetScale ?? 1.0).toFixed(1)}</span>
             </div>
             <div className="text-[10px] text-zinc-500 font-medium">
               Class Average
@@ -312,10 +304,10 @@ export const MobileGradebook: React.FC<MobileGradebookProps> = ({
                   {isGraded ? (
                     <div className="text-right">
                       <div className="text-xs font-mono font-bold text-[#3B82F6]">
-                        {metrics.scaledFinal.toFixed(2)} <span className="text-[10px] text-zinc-400">/ {gradingScale.max_score.toFixed(gradingScale.precision ?? 1)}</span>
+                        {metrics.scaledFinal.toFixed(2)} <span className="text-[10px] text-zinc-400">/ {(currentAssignment.targetScale ?? 1.0).toFixed(1)}</span>
                       </div>
-                      <div className="text-[10px] text-zinc-500 font-medium">
-                        {gradingScale.max_score === 9 ? `Grade ${metrics.numericGrade.gradeNumber}` : metrics.numericGrade.displayGrade}
+                      <div className="text-[10px] text-zinc-500 font-medium font-mono">
+                        {metrics.percentage.toFixed(0)}%
                       </div>
                     </div>
                   ) : (

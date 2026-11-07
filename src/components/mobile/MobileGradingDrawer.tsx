@@ -14,7 +14,7 @@ import {
 import { useCourse } from '../../context/CourseContext';
 import { useAuth } from '../../context/AuthContext';
 import { Assignment, User, Question, SubQuestion } from '../../types';
-import { calculateNumericGrade } from '../../utils/grading';
+import { calculateStudentAssignmentScore } from '../../utils/grading';
 
 interface MobileGradingDrawerProps {
   isOpen: boolean;
@@ -111,11 +111,10 @@ export const MobileGradingDrawer: React.FC<MobileGradingDrawerProps> = ({
   });
 
   const rawSum = rowTotal + rowBonus;
-  const scaledScore = assignment.totalMaxScore > 0
-    ? Math.min(9, (rawSum / assignment.totalMaxScore) * 9)
-    : Math.min(9, rawSum);
-  const percentage = (scaledScore / 9) * 100;
-  const numericGrade = calculateNumericGrade(percentage);
+  const calc = calculateStudentAssignmentScore(assignment, scores);
+  const scaledScore = calc.displayScore;
+  const percentage = calc.percentage;
+  const asgScale = assignment.targetScale ?? 1.0;
 
   const handleScoreChange = (itemKey: string, newVal: number | null, maxScore: number, isBonus?: boolean) => {
     if (!student) return;
@@ -202,10 +201,10 @@ export const MobileGradingDrawer: React.FC<MobileGradingDrawerProps> = ({
                 {rawSum.toFixed(1)} / {assignment.totalMaxScore}p
               </span>
               <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono bg-[#3B82F6]/10 text-[#3B82F6] border border-[#3B82F6]/20">
-                {scaledScore.toFixed(2)} / 9.0
+                {scaledScore.toFixed(2)} / {asgScale.toFixed(1)}
               </span>
               <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-zinc-900 text-white dark:bg-zinc-800 dark:text-zinc-100">
-                Grade {numericGrade.gradeNumber}
+                {percentage.toFixed(0)}%
               </span>
             </div>
           </div>

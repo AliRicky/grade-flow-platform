@@ -12,32 +12,31 @@ import { UserManagement } from '../admin/UserManagement';
 import { ExportCenterModal } from '../admin/ExportCenterModal';
 import { TaDelegationPanel } from '../admin/TaDelegationPanel';
 import { DashboardOverview } from '../admin/DashboardOverview';
-import { DEFAULT_GRADING_SCALE } from '../../utils/grading';
 
 // Mock AuthContext
 let mockIsAdmin = false;
 
 const mockCurrentUser = {
   id: 'student_1',
-  full_name: 'Alex Rivers',
+  full_name: 'Ashkan Yousefi',
   role: 'student' as const,
-  studentId: 'STU-1001',
+  studentId: '4002019039',
   section: 'General'
 };
 
 const mockAdminUser = {
   id: 'admin_1',
-  full_name: 'Morgan Turing',
+  full_name: 'Ali Ricky',
   role: 'admin' as const,
-  studentId: 'TA-2001',
+  studentId: '4002019015',
   section: 'Lead TA'
 };
 
 const mockUsers = [
   mockCurrentUser,
-  { id: 'student_2', full_name: 'Test Student 1', role: 'student' as const, studentId: 'STU-1002' },
+  { id: 'student_2', full_name: 'Test Student 1', role: 'student' as const, studentId: '4042019001' },
   mockAdminUser,
-  { id: 'admin_2', full_name: 'Jordan Taylor', role: 'admin' as const, studentId: 'TA-2002' }
+  { id: 'admin_2', full_name: 'Setayesh Habibi', role: 'admin' as const, studentId: '4022019012' }
 ];
 
 vi.mock('../../context/AuthContext', () => ({
@@ -58,8 +57,8 @@ vi.mock('../../services/supabaseDatabase', () => ({
       select: vi.fn(() => ({
         order: vi.fn(() => Promise.resolve({
           data: [
-            { id: '1', full_name: 'Alex Rivers', role: 'student', student_id: 'STU-1001', section: 'General' },
-            { id: '2', full_name: 'Morgan Turing', role: 'admin', student_id: 'TA-2001', section: 'Lead TA' }
+            { id: '1', full_name: 'Ashkan Yousefi', role: 'student', student_id: '4002019039', section: 'General' },
+            { id: '2', full_name: 'Ali Ricky', role: 'admin', student_id: '4002019015', section: 'Lead TA' }
           ],
           error: null
         }))
@@ -110,7 +109,7 @@ const mockGrades = {
     studentId: 'student_1',
     assignmentId: 'asg_1',
     scores: { 'q1': 10, 'q2': 17 },
-    gradedBy: 'Morgan Turing',
+    gradedBy: 'Ali Ricky',
     gradedAt: '2026-10-15T00:00:00Z'
   }
 };
@@ -119,7 +118,7 @@ const mockRegrades = [
   {
     id: 'regrade_1',
     studentId: 'student_1',
-    studentName: 'Alex Rivers',
+    studentName: 'Ashkan Yousefi',
     assignmentId: 'asg_1',
     assignmentTitle: 'Homework 1: Optimization',
     questionLabel: '1',
@@ -165,8 +164,6 @@ const mockCourseValue = {
   markAllNotificationsAsRead: vi.fn(),
   sendOverdueReminders: vi.fn(async () => ({ sentCount: 1, timestamp: new Date().toISOString() })),
   triggerBrowserNotification: vi.fn(),
-  gradingScale: DEFAULT_GRADING_SCALE,
-  updateGradingScale: vi.fn(),
 };
 
 vi.mock('../../context/CourseContext', () => ({
@@ -180,7 +177,7 @@ describe('Complete GradeFlow Feature Verification Suite', () => {
   });
 
   describe('1. What-If Final Grade Planner (WhatIfCalculator)', () => {
-    it('renders scenario simulator with 9.0 scale goal header', () => {
+    it('renders scenario simulator with normalized scale goal header', () => {
       render(<WhatIfCalculator />);
       expect(screen.getByText(/"What-If" Final Grade Planner/i)).toBeInTheDocument();
       expect(screen.getByText(/Scenario Simulator/i)).toBeInTheDocument();
@@ -275,9 +272,9 @@ describe('Complete GradeFlow Feature Verification Suite', () => {
       render(<UserManagement />);
       await waitFor(() => {
         expect(screen.getByRole('heading', { name: /User Management/i })).toBeInTheDocument();
-        expect(screen.getByText('Alex Rivers')).toBeInTheDocument();
+        expect(screen.getByText('Ashkan Yousefi')).toBeInTheDocument();
       });
-      expect(screen.getByText('Morgan Turing')).toBeInTheDocument();
+      expect(screen.getByText('Ali Ricky')).toBeInTheDocument();
     });
   });
 

@@ -35,13 +35,12 @@ import {
   Info
 } from 'lucide-react';
 import { useCourse } from '../../context/CourseContext';
-import { DEFAULT_GRADING_SCALE } from '../../utils/grading';
 import { useAuth } from '../../context/AuthContext';
 import { Assignment, Question, SubQuestion } from '../../types';
+import { calculateStudentAssignmentScore } from '../../utils/grading';
 
 export const AnalyticsDashboard: React.FC = () => {
-  const { assignments, grades, gradingScale: rawScale } = useCourse();
-  const gradingScale = rawScale || DEFAULT_GRADING_SCALE;
+  const { assignments, grades } = useCourse();
   const { users } = useAuth();
 
   const students = useMemo(() => users.filter(u => u.role === 'student'), [users]);
@@ -57,7 +56,7 @@ export const AnalyticsDashboard: React.FC = () => {
     return assignments.find(a => a.id === selectedAsgId) || assignments[0];
   }, [assignments, selectedAsgId]);
 
-  // 1. Calculate Score Distribution for Selected Assessment (out of 9, max 9)
+  // 1. Calculate Score Distribution for Selected Assessment (Normalized Target Scale)
   const distributionData = useMemo(() => {
     if (!currentAssignment) {
       return {
@@ -67,24 +66,14 @@ export const AnalyticsDashboard: React.FC = () => {
       };
     }
 
-    const m = gradingScale.max_score;
-    const p = gradingScale.precision ?? 1;
-    const pass = gradingScale.passing_threshold;
-
-    const buckets = m === 9 ? [
-      { range: '< 4.5', label: 'Struggle (<4.5)', count: 0, min: 0, max: 4.5, color: '#EF4444', description: 'Requires intervention' },
-      { range: '4.5–5.3', label: 'Satisfactory (G5)', count: 0, min: 4.5, max: 5.4, color: '#FBBF24', description: 'Satisfactory baseline' },
-      { range: '5.4–6.2', label: 'Good (G6)', count: 0, min: 5.4, max: 6.3, color: '#38BDF8', description: 'Competent execution' },
-      { range: '6.3–7.1', label: 'Proficient (G7)', count: 0, min: 6.3, max: 7.2, color: '#2DD4BF', description: 'Solid comprehension' },
-      { range: '7.2–8.0', label: 'Distinction (G8)', count: 0, min: 7.2, max: 8.1, color: '#10B981', description: 'Comprehensive domain understanding' },
-      { range: '8.1–9.0', label: 'Mastery (G9)', count: 0, min: 8.1, max: 9.01, color: '#3B82F6', description: 'Exemplary mastery (Top Band)' },
-    ] : [
-      { range: `< ${pass.toFixed(p)}`, label: `At Risk (<${pass.toFixed(p)})`, count: 0, min: 0, max: pass, color: '#EF4444', description: 'Requires intervention' },
-      { range: `${pass.toFixed(p)}–${(m * 0.6).toFixed(p)}`, label: 'Passing', count: 0, min: pass, max: m * 0.6, color: '#FBBF24', description: 'Baseline pass attainment' },
-      { range: `${(m * 0.6).toFixed(p)}–${(m * 0.7).toFixed(p)}`, label: 'Good', count: 0, min: m * 0.6, max: m * 0.7, color: '#38BDF8', description: 'Competent execution' },
-      { range: `${(m * 0.7).toFixed(p)}–${(m * 0.8).toFixed(p)}`, label: 'Proficient', count: 0, min: m * 0.7, max: m * 0.8, color: '#2DD4BF', description: 'Solid comprehension' },
-      { range: `${(m * 0.8).toFixed(p)}–${(m * 0.9).toFixed(p)}`, label: 'Distinction', count: 0, min: m * 0.8, max: m * 0.9, color: '#10B981', description: 'Comprehensive domain understanding' },
-      { range: `${(m * 0.9).toFixed(p)}–${m.toFixed(p)}`, label: 'Mastery', count: 0, min: m * 0.9, max: m + 0.01, color: '#3B82F6', description: 'Exemplary mastery (Top Band)' },
+    const asgScale = currentAssignment.targetScale ?? 1.0;
+    const buckets = [
+      { range: '< 50%', label: 'Remediation (<50%)', count: 0, min: 0, max: 0.5, color: '#EF4444', description: 'Requires intervention' },
+      { range: '50–69%', label: 'Passing (50–69%)', count: 0, min: 0.5, max: 0.7, color: '#FBBF24', description: 'Basic passing standard' },
+      { range: '70–79%', label: 'Proficient (70–79%)', count: 0, min: 0.7, max: 0.8, color: '#2DD4BF', description: 'Solid comprehension' },
+      { range: '80–89%', label: 'Distinction (80–89%)', count: 0, min: 0.8, max: 0.9, color: '#10B981', description: 'Comprehensive domain understanding' },
+      { range: '90–100%', label: 'Mastery (90–100%)', count: 0, min: 0.9, max: 1.0001, color: '#3B82F6', description: 'Exemplary mastery' },
+      { range: '> 100%', label: 'Bonus Overflow', count: 0, min: 1.0001, max: 999, color: '#8B5CF6', description: 'Uncapped bonus points earned' },
     ];
 
     let totalScoreSum = 0;
@@ -94,42 +83,28 @@ export const AnalyticsDashboard: React.FC = () => {
       const studentGrade = grades[`${student.id}_${currentAssignment.id}`];
       if (!studentGrade) return;
 
-      let earned = 0;
-      let bonus = 0;
       let hasAnyScore = false;
-
       const questions = Array.isArray(currentAssignment?.questions) ? currentAssignment.questions : [];
       questions.forEach(q => {
         if (q.subQuestions && q.subQuestions.length > 0) {
           q.subQuestions.forEach(sq => {
             const v = studentGrade.scores?.[`${q.id}_${sq.id}`];
-            if (v !== undefined && v !== null) {
-              hasAnyScore = true;
-              if (q.isBonus) bonus += v;
-              else earned += v;
-            }
+            if (v !== undefined && v !== null) hasAnyScore = true;
           });
         } else {
           const v = studentGrade.scores?.[q.id];
-          if (v !== undefined && v !== null) {
-            hasAnyScore = true;
-            if (q.isBonus) bonus += v;
-            else earned += v;
-          }
+          if (v !== undefined && v !== null) hasAnyScore = true;
         }
       });
 
       if (hasAnyScore) {
         gradedStudentsCount++;
-        const raw = earned + bonus;
-        const scaled = currentAssignment.totalMaxScore > 0
-          ? Math.min(m, Math.round(((raw / currentAssignment.totalMaxScore) * m) * 100) / 100)
-          : Math.min(m, raw);
-
-        totalScoreSum += scaled;
+        const calc = calculateStudentAssignmentScore(currentAssignment, studentGrade.scores);
+        totalScoreSum += calc.displayScore;
+        const ratio = asgScale > 0 ? calc.exactScore / asgScale : 0;
 
         for (const bucket of buckets) {
-          if (scaled >= bucket.min && (scaled < bucket.max || (bucket.max >= m && scaled <= m + 0.01))) {
+          if (ratio >= bucket.min && ratio < bucket.max) {
             bucket.count++;
             break;
           }
@@ -144,7 +119,7 @@ export const AnalyticsDashboard: React.FC = () => {
       classAverage,
       gradedStudentsCount,
     };
-  }, [currentAssignment, students, grades, gradingScale]);
+  }, [currentAssignment, students, grades]);
 
   // 2. Calculate Question-by-Question Difficulty & Struggle Points
   const questionStruggleData = useMemo(() => {
@@ -260,7 +235,7 @@ export const AnalyticsDashboard: React.FC = () => {
       if (a.gradedCount === 0 && b.gradedCount > 0) return 1;
       return a.percentage - b.percentage;
     });
-  }, [currentAssignment, students, grades, gradingScale]);
+  }, [currentAssignment, students, grades]);
 
   // 3. Trends across all 5 Homeworks and 5 Quizzes
   const assessmentTrendsData = useMemo(() => {
@@ -479,11 +454,13 @@ export const AnalyticsDashboard: React.FC = () => {
           </div>
           <div className="text-xl sm:text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-100">
             {distributionData.classAverage.toFixed(2)}{' '}
-            <span className="text-[10px] sm:text-xs font-normal text-zinc-400">/ 9.0</span>
+            <span className="text-[10px] sm:text-xs font-normal text-zinc-400">
+              / {(currentAssignment?.targetScale ?? 1.0).toFixed(1)}
+            </span>
           </div>
           <div className="text-[10px] sm:text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 font-mono">
             {distributionData.gradedStudentsCount > 0
-              ? `${Math.round((distributionData.classAverage / 9) * 100)}% overall mastery`
+              ? `${(currentAssignment?.targetScale ?? 1.0) > 0 ? Math.round((distributionData.classAverage / (currentAssignment?.targetScale ?? 1.0)) * 100) : 0}% overall mastery`
               : 'No scores entered'}
           </div>
         </div>
@@ -543,12 +520,12 @@ export const AnalyticsDashboard: React.FC = () => {
                     Grade Distribution Curve: {currentAssignment?.shortCode}
                   </h3>
                   <span className="text-xs text-zinc-500">
-                    Histogram of cohort scores scaled out of 9.0 (Scale of 9)
+                    Histogram of cohort scores normalized to target scale ({(currentAssignment?.targetScale ?? 1.0).toFixed(1)} pts)
                   </span>
                 </div>
                 <div className="text-xs font-mono text-zinc-500 flex items-center gap-2 mt-1 sm:mt-0">
                   <span className="w-2.5 h-2.5 rounded-full bg-[#3B82F6] inline-block" />
-                  <span>Mean: {distributionData.classAverage.toFixed(2)}/9.0</span>
+                  <span>Mean: {distributionData.classAverage.toFixed(2)}/{(currentAssignment?.targetScale ?? 1.0).toFixed(1)}</span>
                 </div>
               </div>
 
@@ -572,11 +549,11 @@ export const AnalyticsDashboard: React.FC = () => {
                     {distributionData.gradedStudentsCount > 0 && (
                       <ReferenceLine
                         x={
-                          distributionData.classAverage >= 8.1 ? '8.1–9.0' :
-                          distributionData.classAverage >= 7.2 ? '7.2–8.0' :
-                          distributionData.classAverage >= 6.3 ? '6.3–7.1' :
-                          distributionData.classAverage >= 5.4 ? '5.4–6.2' :
-                          distributionData.classAverage >= 4.5 ? '4.5–5.3' : '< 4.5'
+                          distributionData.classAverage / (currentAssignment?.targetScale ?? 1.0) > 1.0 ? '> 100%' :
+                          distributionData.classAverage / (currentAssignment?.targetScale ?? 1.0) >= 0.9 ? '90–100%' :
+                          distributionData.classAverage / (currentAssignment?.targetScale ?? 1.0) >= 0.8 ? '80–89%' :
+                          distributionData.classAverage / (currentAssignment?.targetScale ?? 1.0) >= 0.7 ? '70–79%' :
+                          distributionData.classAverage / (currentAssignment?.targetScale ?? 1.0) >= 0.5 ? '50–69%' : '< 50%'
                         }
                         stroke="#3B82F6"
                         strokeDasharray="4 4"
@@ -596,16 +573,16 @@ export const AnalyticsDashboard: React.FC = () => {
                 <span>Total Graded: {distributionData.gradedStudentsCount} Students</span>
                 <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                   <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-rose-500" /> &lt;4.5 Struggle
+                    <span className="w-2 h-2 rounded-full bg-rose-500" /> &lt;50% Remediation
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-amber-400" /> 4.5–5.3 Passing
+                    <span className="w-2 h-2 rounded-full bg-amber-400" /> 50–69% Passing
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-teal-400" /> 7.2–8.0 Strong
+                    <span className="w-2 h-2 rounded-full bg-teal-400" /> 70–89% Proficient
                   </span>
                   <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-[#3B82F6]" /> 8.1–9.0 Mastery
+                    <span className="w-2 h-2 rounded-full bg-[#3B82F6]" /> 90%+ Mastery
                   </span>
                 </div>
               </div>
@@ -818,7 +795,7 @@ export const AnalyticsDashboard: React.FC = () => {
             </div>
             <div className="flex justify-between text-zinc-500 dark:text-zinc-400">
               <span>Cohort Success Rate:</span>
-              <span className="font-mono text-emerald-500 font-semibold">{distributionData.classAverage > 0 && gradingScale.max_score > 0 ? `${Math.round((distributionData.classAverage / gradingScale.max_score) * 100)}%` : '—'}</span>
+              <span className="font-mono text-emerald-500 font-semibold">{distributionData.classAverage > 0 ? `${Math.round((distributionData.classAverage / 9) * 100)}%` : '—'}</span>
             </div>
           </div>
         </div>

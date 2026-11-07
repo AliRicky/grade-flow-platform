@@ -14,7 +14,10 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useCourse } from '../../context/CourseContext';
 import { Assignment } from '../../types';
-import { calculateNumericGrade, DEFAULT_GRADING_SCALE } from '../../utils/grading';
+import {
+  calculateStudentAssignmentScore,
+  roundUpToTwoDecimals
+} from '../../utils/grading';
 
 interface StudentGradesViewProps {
   onRequestRegrade: (assignment: Assignment, questionLabel: string, currentScore: number, maxScore: number) => void;
@@ -22,8 +25,7 @@ interface StudentGradesViewProps {
 
 export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestRegrade }) => {
   const { currentUser } = useAuth();
-  const { assignments: allAssignments, grades, gradingScale: rawScale } = useCourse();
-  const gradingScale = rawScale || DEFAULT_GRADING_SCALE;
+  const { assignments: allAssignments, grades, courseConfig } = useCourse();
 
   // Students never see drafts
   const assignments = React.useMemo(() => allAssignments.filter(a => a.status !== 'draft'), [allAssignments]);
@@ -45,51 +47,63 @@ export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestR
     return a.type === typeFilter;
   });
 
-  const { cumulativePercentage, numericGrade, totalWeightEvaluated } = React.useMemo(() => {
-    let totalWeightedEarned = 0;
-    let totalWeightEvaluated = 0;
+  const semesterScale = courseConfig?.semesterScale || 5.0;
+
+  const { cumulativePercentage, performanceStatus, displaySemesterScore, isSemesterOverflow, totalEvaluatedCount } = React.useMemo(() => {
+    let weightedRatioSum = 0;
+    let weightSum = 0;
+    let evaluatedCount = 0;
+    let earnedSolidSum = 0;
 
     assignments.forEach(asg => {
       const studentGrade = grades[`${studentId}_${asg.id}`];
       if (studentGrade && Object.keys(studentGrade.scores || {}).length > 0) {
-        let earned = 0;
-        let bonus = 0;
-
-        const questions = Array.isArray(asg.questions) ? asg.questions : [];
-        questions.forEach(q => {
-          const sqs = Array.isArray(q.subQuestions) ? q.subQuestions : [];
-          if (sqs.length > 0) {
-            sqs.forEach(sq => {
-              const val = studentGrade.scores[`${q.id}_${sq.id}`];
-              if (val !== undefined && val !== null) {
-                if (q.isBonus) bonus += val;
-                else earned += val;
-              }
-            });
-          } else {
-            const val = studentGrade.scores[q.id];
-            if (val !== undefined && val !== null) {
-              if (q.isBonus) bonus += val;
-              else earned += val;
-            }
-          }
-        });
-
-        const totalRaw = earned + bonus;
-        const pct = asg.totalMaxScore > 0 ? (totalRaw / asg.totalMaxScore) : 0;
-        totalWeightedEarned += pct * asg.weightPercent;
-        totalWeightEvaluated += asg.weightPercent;
+        evaluatedCount++;
+        const calc = calculateStudentAssignmentScore(asg, studentGrade.scores);
+        earnedSolidSum += calc.exactScore;
+        const ratio = calc.targetScale > 0 ? calc.exactScore / calc.targetScale : 0;
+        const w = courseConfig?.weightMode === 'weightPercent' && asg.weightPercent > 0 ? asg.weightPercent : 1.0;
+        weightedRatioSum += ratio * w;
+        weightSum += w;
       }
     });
 
-    const cumulativePercentage = totalWeightEvaluated > 0
-      ? (totalWeightedEarned / totalWeightEvaluated) * 100
-      : 0;
+    const isProportional = courseConfig?.scaleMode === 'proportional';
+    const isWeightPercent = courseConfig?.weightMode === 'weightPercent';
 
-    const numericGrade = calculateNumericGrade(cumulativePercentage, gradingScale);
+    let exactSemesterScore = earnedSolidSum;
+    let cumulativeRatio = 0;
 
-    return { cumulativePercentage, numericGrade, totalWeightEvaluated };
-  }, [assignments, grades, studentId, gradingScale]);
+    if (isWeightPercent && weightSum > 0) {
+      cumulativeRatio = weightedRatioSum / weightSum;
+      exactSemesterScore = cumulativeRatio * semesterScale;
+    } else if (isProportional) {
+      cumulativeRatio = weightSum > 0 ? weightedRatioSum / weightSum : 0;
+      exactSemesterScore = cumulativeRatio * semesterScale;
+    } else {
+      // Cumulative solid scores (Default): points accumulate directly towards semester scale
+      exactSemesterScore = earnedSolidSum;
+      cumulativeRatio = semesterScale > 0 ? exactSemesterScore / semesterScale : 0;
+    }
+
+    const displaySemesterScore = roundUpToTwoDecimals(exactSemesterScore);
+    const cumulativePercentage = cumulativeRatio * 100;
+    const performanceStatus =
+      cumulativePercentage >= 90 ? 'Mastery' :
+      cumulativePercentage >= 80 ? 'Distinction' :
+      cumulativePercentage >= 70 ? 'Proficient' :
+      cumulativePercentage >= 60 ? 'Satisfactory' :
+      cumulativePercentage >= 50 ? 'Passing' : 'Remediation Needed';
+    const isSemesterOverflow = exactSemesterScore > semesterScale;
+
+    return {
+      cumulativePercentage,
+      performanceStatus,
+      displaySemesterScore,
+      isSemesterOverflow,
+      totalEvaluatedCount: evaluatedCount
+    };
+  }, [assignments, grades, studentId, semesterScale, courseConfig]);
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -99,7 +113,7 @@ export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestR
         <div className="relative z-10">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#3B82F6] mb-1 sm:mb-2">
             <Award className="w-4 h-4" />
-            <span>Academic Performance · {gradingScale.label || `${gradingScale.max_score}-Point Scale`}</span>
+            <span>Academic Performance · Normalized Engine</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-bold font-display text-zinc-900 dark:text-zinc-100">
             {currentUser?.full_name || 'Student Grade Portal'}
@@ -109,30 +123,36 @@ export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestR
             <span className="text-zinc-300 dark:text-zinc-700">|</span>
             <span>Sec: {currentUser?.section || '—'}</span>
             <span className="text-zinc-300 dark:text-zinc-700">|</span>
-            <span>Scale: 0 – {gradingScale.max_score}</span>
+            <span>Semester Scale: {semesterScale.toFixed(1)}</span>
           </div>
         </div>
 
         {/* Grade summary pill cards */}
         <div className="grid grid-cols-2 sm:flex sm:items-center gap-2.5 sm:gap-4 relative z-10">
           <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-center sm:min-w-[110px]">
-            <span className="text-[10px] sm:text-[11px] text-zinc-500 dark:text-zinc-400 block font-medium">Weighted Score</span>
+            <span className="text-[10px] sm:text-[11px] text-zinc-500 dark:text-zinc-400 block font-medium">Cumulative Ratio</span>
             <span className="text-base sm:text-lg font-bold font-mono text-zinc-900 dark:text-zinc-100">
-              {totalWeightEvaluated > 0 ? `${cumulativePercentage.toFixed(1)}%` : '—'}
+              {totalEvaluatedCount > 0 ? `${cumulativePercentage.toFixed(1)}%` : '—'}
             </span>
           </div>
 
           <div className="bg-[#3B82F6]/10 border border-[#3B82F6]/30 rounded-xl p-3 text-center sm:min-w-[130px]">
-            <span className="text-[10px] sm:text-[11px] text-[#3B82F6] block font-medium">Numeric Grade</span>
+            <span className="text-[10px] sm:text-[11px] text-[#3B82F6] block font-medium">Semester Score</span>
             <div className="flex items-baseline justify-center gap-1">
               <span className="text-xl sm:text-2xl font-black font-mono text-[#3B82F6]">
-                {totalWeightEvaluated > 0 ? (gradingScale.max_score === 9 ? numericGrade.gradeNumber : numericGrade.scaledValue.toFixed(gradingScale.precision ?? 1)) : '—'}
+                {totalEvaluatedCount > 0 ? displaySemesterScore.toFixed(2) : '—'}
               </span>
-              <span className="text-xs text-zinc-400 font-mono">/ {gradingScale.max_score}</span>
+              <span className="text-xs text-zinc-400 font-mono">/ {semesterScale}</span>
             </div>
-            <span className="text-[10px] text-zinc-500 dark:text-zinc-400 block mt-0.5 font-medium truncate">
-              {totalWeightEvaluated > 0 ? numericGrade.label : 'Pending'}
-            </span>
+            {isSemesterOverflow ? (
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block mt-0.5 truncate">
+                +Bonus Overflow
+              </span>
+            ) : (
+              <span className="text-[10px] text-zinc-500 dark:text-zinc-400 block mt-0.5 font-medium truncate">
+                {totalEvaluatedCount > 0 ? performanceStatus : 'Pending'}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -224,14 +244,9 @@ export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestR
             }
           });
 
-          const totalRaw = totalEarned + bonusEarned;
-          const scaledScore = asg.totalMaxScore > 0
-            ? Math.min(gradingScale.max_score, Math.round(((totalRaw / asg.totalMaxScore) * gradingScale.max_score) * 100) / 100)
-            : Math.min(gradingScale.max_score, totalRaw);
-          
-          const asgPercentage = asg.totalMaxScore > 0 ? (totalRaw / asg.totalMaxScore) * 100 : 0;
-          const asgNumericGrade = calculateNumericGrade(asgPercentage, gradingScale);
-
+          const calc = calculateStudentAssignmentScore(asg, studentGrade?.scores);
+          const scaledScore = calc.displayScore;
+          const asgPercentage = calc.percentage;
           const isGraded = studentGrade && answeredCount > 0;
 
           return (
@@ -276,22 +291,24 @@ export const StudentGradesView: React.FC<StudentGradesViewProps> = ({ onRequestR
                   {isGraded ? (
                     <div className="text-right flex items-center gap-3">
                       <div>
-                        <div className="text-sm font-bold font-mono text-zinc-900 dark:text-zinc-100">
-                          {scaledScore.toFixed(2)} <span className="text-xs text-zinc-400">/ {gradingScale.max_score.toFixed(gradingScale.precision ?? 1)}</span>
+                        <div className="text-sm font-bold font-mono text-zinc-900 dark:text-zinc-100 flex items-center justify-end gap-1.5">
+                          <span>{scaledScore.toFixed(2)}</span>
+                          <span className="text-xs text-zinc-400">/ {calc.targetScale}</span>
+                          {calc.isOverflow && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold">
+                              +Bonus
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] text-zinc-500 font-mono">
-                          Raw: {totalRaw.toFixed(1)} / {asg.totalMaxScore} pts
-                          {bonusEarned > 0 && <span className="text-[#3B82F6] font-medium"> (+{bonusEarned} bonus)</span>}
+                          Raw: {calc.totalEarned.toFixed(1)} / {calc.standardDenominator} pts
+                          {calc.bonusEarned > 0 && <span className="text-[#3B82F6] font-medium"> (+{calc.bonusEarned} bonus)</span>}
                         </div>
                       </div>
 
                       <div className="px-2.5 py-1 rounded bg-[#3B82F6]/10 border border-[#3B82F6]/20 text-center font-mono">
-                        <span className="text-[10px] text-zinc-400 block uppercase font-medium">
-                          {gradingScale.max_score === 9 ? 'Scale 9' : `Scale ${gradingScale.max_score}`}
-                        </span>
-                        <span className="text-xs font-bold text-[#3B82F6]">
-                          {gradingScale.max_score === 9 ? `Grade ${asgNumericGrade.gradeNumber}` : asgNumericGrade.displayGrade}
-                        </span>
+                        <span className="text-[10px] text-zinc-400 block uppercase font-medium">Score</span>
+                        <span className="text-xs font-bold text-[#3B82F6]">{asgPercentage.toFixed(0)}%</span>
                       </div>
                     </div>
                   ) : (

@@ -1,13 +1,13 @@
 /**
  * Academic PDF Export Service using jsPDF and jspdf-autotable
  * Clean Supabase styling: Emerald #3B82F6, Dark #000000 / #09090B, Neutral Zinc
- * Scale 9 Numeric Grading standard across all exports.
+ * Normalized Academic Grading standard across all exports.
  */
 
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Assignment, GradingScale, StudentAssignmentGrade, User } from '../types';
-import { DEFAULT_GRADING_SCALE, calculateNumericGrade, normalizeGradingScale } from './grading';
+import { Assignment, StudentAssignmentGrade, User } from '../types';
+import { calculateStudentAssignmentScore } from './grading';
 
 // Palette color constants in RGB format (Supabase Theme)
 const PALETTE = {
@@ -32,19 +32,14 @@ export function exportGradebookMatrixPDF(
     instructorName?: string;
     semester?: string;
     includeSignoff?: boolean;
-    scale?: GradingScale;
   } = {}
 ): void {
   const {
-    courseName = 'Introduction to Algorithms & Systems',
-    instructorName = 'Course Instructor / Teaching Staff',
+    courseName = 'Machine Learning & Optimization',
+    instructorName = 'Dr. Kian Rezaei (Lead TA / Instructor)',
     semester = 'Fall 2026',
     includeSignoff = true,
-    scale = DEFAULT_GRADING_SCALE,
   } = options;
-
-  const activeScale = normalizeGradingScale(scale);
-  const m = activeScale.max_score;
 
   // A4 Landscape for tabular master gradebook
   const doc = new jsPDF({
@@ -100,7 +95,7 @@ export function exportGradebookMatrixPDF(
   const quizList = assignments.filter(a => a.type === 'quiz');
 
   doc.text(
-    `Enrolled Students: ${students.length}  |  Assessments: ${hwList.length} Homeworks, ${quizList.length} Quizzes  |  Standard Scale: ${activeScale.label || `${m}-Point Numeric`}  |  Passing: ${activeScale.passing_threshold}`,
+    `Enrolled Students: ${students.length}  |  Assessments: ${hwList.length} Homeworks, ${quizList.length} Quizzes  |  Standard Scale: Normalized Academic Scale  |  Passing: 50%`,
     150,
     88
   );
@@ -111,11 +106,11 @@ export function exportGradebookMatrixPDF(
     'Student ID',
     'Student Name',
     'Sec',
-    ...hwList.map(h => `${h.shortCode} (/${m})`),
-    ...quizList.map(q => `${q.shortCode} (/${m})`),
+    ...hwList.map(h => `${h.shortCode} (/${(h.targetScale ?? 1.0).toFixed(1)})`),
+    ...quizList.map(q => `${q.shortCode} (/${q.targetScale ?? 1.0})`),
     'Course %',
-    `Final /${m}`,
-    m === 9 ? 'Scale 9' : `Scale ${m}`,
+    'Final /5.0',
+    'Status',
   ];
 
   const hwSums: Record<string, number> = {};
@@ -135,75 +130,40 @@ export function exportGradebookMatrixPDF(
     const hwScores = hwList.map(h => {
       const g = gradesMap[`${student.id}_${h.id}`];
       if (!g || !g.scores || Object.keys(g.scores).length === 0) return '—';
-      let earned = 0;
-      let bonus = 0;
-      (Array.isArray(h.questions) ? h.questions : []).forEach(q => {
-        if (q.subQuestions && q.subQuestions.length > 0) {
-          q.subQuestions.forEach(sq => {
-            const v = g.scores[`${q.id}_${sq.id}`];
-            if (v !== undefined && v !== null) {
-              if (q.isBonus) bonus += v;
-              else earned += v;
-            }
-          });
-        } else {
-          const v = g.scores[q.id];
-          if (v !== undefined && v !== null) {
-            if (q.isBonus) bonus += v;
-            else earned += v;
-          }
-        }
-      });
-      const raw = earned + bonus;
-      const scaled = h.totalMaxScore > 0 ? Math.min(m, (raw / h.totalMaxScore) * m) : Math.min(m, raw);
-      hwSums[h.id] += scaled;
+      const calc = calculateStudentAssignmentScore(h, g.scores);
+      hwSums[h.id] += calc.exactScore;
       hwCounts[h.id] += 1;
-      studentWeightedScoreSum += (scaled / m) * h.weightPercent;
+      const ratio = calc.targetScale > 0 ? calc.exactScore / calc.targetScale : 0;
+      studentWeightedScoreSum += ratio * h.weightPercent;
       studentWeightSum += h.weightPercent;
-      return scaled.toFixed(1);
+      return calc.displayScore.toFixed(1);
     });
 
     const quizScores = quizList.map(q => {
       const g = gradesMap[`${student.id}_${q.id}`];
       if (!g || !g.scores || Object.keys(g.scores).length === 0) return '—';
-      let earned = 0;
-      let bonus = 0;
-      (Array.isArray(q.questions) ? q.questions : []).forEach(ques => {
-        if (ques.subQuestions && ques.subQuestions.length > 0) {
-          ques.subQuestions.forEach(sq => {
-            const v = g.scores[`${ques.id}_${sq.id}`];
-            if (v !== undefined && v !== null) {
-              if (ques.isBonus) bonus += v;
-              else earned += v;
-            }
-          });
-        } else {
-          const v = g.scores[ques.id];
-          if (v !== undefined && v !== null) {
-            if (ques.isBonus) bonus += v;
-            else earned += v;
-          }
-        }
-      });
-      const raw = earned + bonus;
-      const scaled = q.totalMaxScore > 0 ? Math.min(m, (raw / q.totalMaxScore) * m) : Math.min(m, raw);
-      quizSums[q.id] += scaled;
+      const calc = calculateStudentAssignmentScore(q, g.scores);
+      quizSums[q.id] += calc.exactScore;
       quizCounts[q.id] += 1;
-      studentWeightedScoreSum += (scaled / m) * q.weightPercent;
+      const ratio = calc.targetScale > 0 ? calc.exactScore / calc.targetScale : 0;
+      studentWeightedScoreSum += ratio * q.weightPercent;
       studentWeightSum += q.weightPercent;
-      return scaled.toFixed(1);
+      return calc.displayScore.toFixed(1);
     });
 
     const courseTotalPct = studentWeightSum > 0 ? (studentWeightedScoreSum / studentWeightSum) * 100 : 0;
-    const finalScaledVal = Math.min(m, (courseTotalPct / 100) * m);
+    const finalScaled = (courseTotalPct / 100) * 5.0;
+    const performanceStatus =
+      courseTotalPct >= 90 ? 'Mastery' :
+      courseTotalPct >= 80 ? 'Distinction' :
+      courseTotalPct >= 70 ? 'Proficient' :
+      courseTotalPct >= 60 ? 'Satisfactory' :
+      courseTotalPct >= 50 ? 'Passing' : 'Remediation';
 
     if (studentWeightSum > 0) {
       classWeightedSum += courseTotalPct;
       activeStudentCount += 1;
     }
-
-    const numericGrade = calculateNumericGrade(courseTotalPct, activeScale);
-    const displayGrade = m === 9 ? `Grade ${numericGrade.gradeNumber}` : numericGrade.displayGrade;
 
     return [
       (idx + 1).toString(),
@@ -213,8 +173,8 @@ export function exportGradebookMatrixPDF(
       ...hwScores,
       ...quizScores,
       courseTotalPct > 0 ? `${courseTotalPct.toFixed(1)}%` : '—',
-      finalScaledVal > 0 ? finalScaledVal.toFixed(2) : '—',
-      courseTotalPct > 0 ? displayGrade : '—',
+      finalScaled > 0 ? finalScaled.toFixed(2) : '—',
+      courseTotalPct > 0 ? performanceStatus : '—',
     ];
   });
 
@@ -230,9 +190,13 @@ export function exportGradebookMatrixPDF(
   });
 
   const overallAvgPct = activeStudentCount > 0 ? classWeightedSum / activeStudentCount : 0;
-  const overallAvgScaled = (overallAvgPct / 100) * m;
-  const overallAvgGrade = calculateNumericGrade(overallAvgPct, activeScale);
-  const overallAvgDisplay = m === 9 ? `Grade ${overallAvgGrade.gradeNumber}` : overallAvgGrade.displayGrade;
+  const overallAvgScaled = (overallAvgPct / 100) * 5.0;
+  const overallAvgStatus =
+    overallAvgPct >= 90 ? 'Mastery' :
+    overallAvgPct >= 80 ? 'Distinction' :
+    overallAvgPct >= 70 ? 'Proficient' :
+    overallAvgPct >= 60 ? 'Satisfactory' :
+    overallAvgPct >= 50 ? 'Passing' : 'Remediation';
 
   const averageRow = [
     '',
@@ -243,7 +207,7 @@ export function exportGradebookMatrixPDF(
     ...quizAverages,
     overallAvgPct > 0 ? `${overallAvgPct.toFixed(1)}%` : '—',
     overallAvgScaled > 0 ? overallAvgScaled.toFixed(2) : '—',
-    overallAvgDisplay,
+    overallAvgPct > 0 ? overallAvgStatus : '—',
   ];
 
   tableRows.push(averageRow);
@@ -320,7 +284,7 @@ export function exportGradebookMatrixPDF(
     doc.setFontSize(7.5);
     doc.setTextColor(...PALETTE.mutedText);
     doc.text(
-      `GradeFlow Academic Management System  ·  Page ${i} of ${pageCount}  ·  Confidential Educational Record (Scale of 9)`,
+      `GradeFlow Academic Management System  ·  Page ${i} of ${pageCount}  ·  Confidential Educational Record`,
       pageWidth / 2,
       pageHeight - 14,
       { align: 'center' }
@@ -344,18 +308,13 @@ export function exportAssignmentReportPDF(
     courseName?: string;
     instructorName?: string;
     semester?: string;
-    scale?: GradingScale;
   } = {}
 ): void {
   const {
-    courseName = 'Introduction to Algorithms & Systems',
+    courseName = 'Machine Learning & Optimization',
     instructorName = 'Teaching Assistant Staff',
     semester = 'Fall 2026',
-    scale = DEFAULT_GRADING_SCALE,
   } = options;
-
-  const activeScale = normalizeGradingScale(scale);
-  const m = activeScale.max_score;
 
   // Portrait A4 for individual assignment report
   const doc = new jsPDF({
@@ -403,7 +362,7 @@ export function exportAssignmentReportPDF(
   // Compute Statistics
   let scoreSum = 0;
   let gradedCount = 0;
-  let minScore = m;
+  let minScore = 9;
   let maxScoreAchieved = 0;
 
   students.forEach(s => {
@@ -429,7 +388,7 @@ export function exportAssignmentReportPDF(
         }
       });
       const raw = earned + bonus;
-      const scaled = assignment.totalMaxScore > 0 ? Math.min(m, (raw / assignment.totalMaxScore) * m) : Math.min(m, raw);
+      const scaled = assignment.totalMaxScore > 0 ? Math.min(9, (raw / assignment.totalMaxScore) * 9) : Math.min(9, raw);
       scoreSum += scaled;
       gradedCount++;
       if (scaled < minScore) minScore = scaled;
@@ -457,11 +416,12 @@ export function exportAssignmentReportPDF(
   doc.text(`${gradedCount} / ${students.length} Students`, 46 + colWidth, startY + 28);
 
   // Box 3
+  const asgScale = assignment.targetScale ?? 1.0;
   doc.setFont('helvetica', 'bold');
   doc.text('CLASS ARITHMETIC MEAN', 46 + colWidth * 2, startY + 15);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(16, 185, 129);
-  doc.text(`${avgScaled} / ${m.toFixed(1)} pts`, 46 + colWidth * 2, startY + 28);
+  doc.text(`${avgScaled} / ${asgScale.toFixed(1)} pts`, 46 + colWidth * 2, startY + 28);
 
   // Box 4
   doc.setTextColor(...PALETTE.darkText);
@@ -551,14 +511,12 @@ export function exportAssignmentReportPDF(
     'Student Name',
     ...columnsToShow.map(c => c.part),
     'Raw Pts',
-    `Final /${m}`,
-    m === 9 ? 'Scale 9' : `Scale ${m}`,
+    `Score /${asgScale.toFixed(1)}`,
+    'Percent',
   ];
 
   const studentRows = students.map((s, idx) => {
     const g = gradesMap[`${s.id}_${assignment.id}`];
-    let rawTotal = 0;
-    let bonus = 0;
 
     const scores = columnsToShow.map(col => {
       let val: number | null | undefined = null;
@@ -577,27 +535,23 @@ export function exportAssignmentReportPDF(
       }
 
       if (val !== undefined && val !== null) {
-        if (col.isBonus) bonus += val;
-        else rawTotal += val;
         return val.toString();
       }
       return '—';
     });
 
-    const combined = rawTotal + bonus;
-    const scaled = assignment.totalMaxScore > 0 ? Math.min(m, (combined / assignment.totalMaxScore) * m) : Math.min(m, combined);
-    const pct = assignment.totalMaxScore > 0 ? (combined / assignment.totalMaxScore) * 100 : 0;
-    const numericGrade = calculateNumericGrade(pct, activeScale);
-    const displayGrade = m === 9 ? `Grade ${numericGrade.gradeNumber}` : numericGrade.displayGrade;
+    const calc = calculateStudentAssignmentScore(assignment, g?.scores);
+    const scaled = calc.displayScore;
+    const pct = calc.percentage;
 
     return [
       (idx + 1).toString(),
       s.studentId || '—',
       s.full_name || 'Unknown',
       ...scores,
-      combined > 0 ? combined.toFixed(1) : '—',
-      combined > 0 ? scaled.toFixed(2) : '—',
-      combined > 0 ? displayGrade : '—',
+      calc.totalEarned > 0 ? calc.totalEarned.toFixed(1) : '—',
+      scaled > 0 ? scaled.toFixed(2) : '—',
+      pct > 0 ? `${pct.toFixed(0)}%` : '—',
     ];
   });
 

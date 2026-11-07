@@ -15,7 +15,6 @@ import {
 import { useCourse } from '../../context/CourseContext';
 import { useAuth } from '../../context/AuthContext';
 import { Assignment } from '../../types';
-import { DEFAULT_GRADING_SCALE } from '../../utils/grading';
 import {
   exportGradebookMatrixPDF,
   exportAssignmentReportPDF,
@@ -23,6 +22,7 @@ import {
   downloadCSV,
   generateMasterCSVContent
 } from '../../utils/pdfExport';
+import { generateSemesterSummaryCSV } from '../../utils/csv';
 
 interface ExportCenterModalProps {
   isOpen: boolean;
@@ -35,15 +35,14 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
   onClose,
   defaultAssignmentId,
 }) => {
-  const { assignments, grades, gradingScale: rawScale } = useCourse();
-  const gradingScale = rawScale || DEFAULT_GRADING_SCALE;
+  const { assignments, grades, courseConfig } = useCourse();
   const { currentUser, users } = useAuth();
 
   const students = users.filter(u => u.role === 'student');
 
-  // Export Mode: 'master' for entire course gradebook, or 'assignment' for single
-  const [exportScope, setExportScope] = useState<'master' | 'assignment'>(
-    defaultAssignmentId ? 'assignment' : 'master'
+  // Export Mode: 'semester-summary' | 'master' | 'assignment'
+  const [exportScope, setExportScope] = useState<'semester-summary' | 'master' | 'assignment'>(
+    defaultAssignmentId ? 'assignment' : 'semester-summary'
   );
   const [selectedAsgId, setSelectedAsgId] = useState<string>(
     defaultAssignmentId || assignments[0]?.id || ''
@@ -58,7 +57,7 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
   // The modal stays mounted, so re-sync its selection every time it opens
   useEffect(() => {
     if (!isOpen) return;
-    setExportScope(defaultAssignmentId ? 'assignment' : 'master');
+    setExportScope(defaultAssignmentId ? 'assignment' : 'semester-summary');
     setSelectedAsgId(defaultAssignmentId || assignments[0]?.id || '');
     setSuccessMessage(null);
     setErrorMessage(null);
@@ -79,10 +78,16 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
   const handleCopyCSV = () => {
     try {
       let csv = '';
-      if (exportScope === 'master') {
-        csv = generateMasterCSVContent(assignments, students, grades, 'en', gradingScale);
+      if (exportScope === 'semester-summary') {
+        csv = generateSemesterSummaryCSV(assignments, students, grades, {
+          semesterScale: courseConfig?.semesterScale || 5.0,
+          weightMode: courseConfig?.weightMode || 'equal',
+          scaleMode: courseConfig?.scaleMode || 'cumulative',
+        });
+      } else if (exportScope === 'master') {
+        csv = generateMasterCSVContent(assignments, students, grades);
       } else if (selectedAssignment) {
-        csv = generateCSVContent(selectedAssignment, students, grades, 'en', gradingScale);
+        csv = generateCSVContent(selectedAssignment, students, grades, 'en');
       }
       navigator.clipboard.writeText(csv);
       setCopiedCSV(true);
@@ -99,19 +104,27 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
     setErrorMessage(null);
 
     try {
-      if (exportScope === 'master') {
+      if (exportScope === 'semester-summary') {
+        const targetScale = courseConfig?.semesterScale || 5.0;
+        const csv = generateSemesterSummaryCSV(assignments, students, grades, {
+          semesterScale: targetScale,
+          weightMode: courseConfig?.weightMode || 'equal',
+          scaleMode: courseConfig?.scaleMode || 'cumulative',
+        });
+        downloadCSV(`Semester_Summary_Report_Scale_${targetScale}.csv`, csv);
+        setSuccessMessage('Official End-of-Semester Summary CSV successfully downloaded!');
+      } else if (exportScope === 'master') {
         // Master Gradebook
         if (format === 'pdf') {
           exportGradebookMatrixPDF(assignments, students, grades, {
-            courseName: 'Introduction to Algorithms & Systems',
+            courseName: 'Machine Learning & Optimization',
             instructorName: currentUser?.full_name || 'Lead TA Staff',
             semester: 'Fall 2026',
             includeSignoff,
-            scale: gradingScale,
           });
           setSuccessMessage('Official Course Master Gradebook PDF successfully downloaded!');
         } else {
-          const csv = generateMasterCSVContent(assignments, students, grades, 'en', gradingScale);
+          const csv = generateMasterCSVContent(assignments, students, grades);
           downloadCSV('Master_Gradebook_Matrix.csv', csv);
           setSuccessMessage('Master Gradebook CSV successfully downloaded!');
         }
@@ -122,14 +135,13 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
         }
         if (format === 'pdf') {
           exportAssignmentReportPDF(selectedAssignment, students, grades, {
-            courseName: 'Introduction to Algorithms & Systems',
+            courseName: 'Machine Learning & Optimization',
             instructorName: currentUser?.full_name || 'TA Staff',
             semester: 'Fall 2026',
-            scale: gradingScale,
           });
           setSuccessMessage(`${selectedAssignment.shortCode} Official Report PDF downloaded!`);
         } else {
-          const csv = generateCSVContent(selectedAssignment, students, grades, 'en', gradingScale);
+          const csv = generateCSVContent(selectedAssignment, students, grades, 'en');
           const fname = `${selectedAssignment.shortCode}_Scores_English.csv`;
           downloadCSV(fname, csv);
           setSuccessMessage(`${selectedAssignment.shortCode} CSV score sheet downloaded!`);
@@ -205,7 +217,29 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
             <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 mb-2">
               1. Select Export Scope
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <button
+                type="button"
+                onClick={() => setExportScope('semester-summary')}
+                className={`p-3 rounded-2xl border text-left flex items-start gap-3 transition-all ${
+                  exportScope === 'semester-summary'
+                    ? 'border-[#3B82F6] bg-[#3B82F6]/10 text-zinc-900 dark:text-zinc-100 shadow-xs'
+                    : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/40'
+                }`}
+              >
+                <div className="w-7 h-7 rounded-xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center shrink-0 mt-0.5">
+                  <Sparkles className="w-4 h-4 text-[#3B82F6]" />
+                </div>
+                <div>
+                  <span className="block text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                    Semester Summary
+                  </span>
+                  <span className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-tight block mt-0.5">
+                    Comprehensive performance matrix across all assessments ({courseConfig?.semesterScale || 5.0} pts)
+                  </span>
+                </div>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setExportScope('master')}
@@ -223,7 +257,7 @@ export const ExportCenterModal: React.FC<ExportCenterModalProps> = ({
                     Master Gradebook
                   </span>
                   <span className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-tight block mt-0.5">
-                    Full class matrix with all {assignments.length} assessment{assignments.length === 1 ? '' : 's'} & {gradingScale.max_score}-point scale course totals
+                    Full class matrix with all {assignments.length} assessment{assignments.length === 1 ? '' : 's'} & normalized semester totals
                   </span>
                 </div>
               </button>
